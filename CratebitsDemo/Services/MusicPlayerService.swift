@@ -201,7 +201,7 @@ class MusicPlayerService: NSObject, ObservableObject {
             print("[Preview Debug] Preview URL found: \(previewURL.absoluteString)")
         }
         
-        await playPreview(from: previewURL, title: song.title)
+        await playPreview(from: previewURL, title: song.title, itemId: song.id.rawValue)
     }
     
     /// トラックの30秒プレビューを再生
@@ -235,11 +235,11 @@ class MusicPlayerService: NSObject, ObservableObject {
             print("[Preview Debug] Preview URL found: \(previewURL.absoluteString)")
         }
         
-        await playPreview(from: previewURL, title: track.title)
+        await playPreview(from: previewURL, title: track.title, itemId: track.id.rawValue)
     }
     
     /// プレビューURLから30秒プレビューを再生
-    private func playPreview(from url: URL, title: String) async {
+    private func playPreview(from url: URL, title: String, itemId: String) async {
         print("[Preview Debug] Starting preview playback for: \(title)")
         print("[Preview Debug] URL: \(url.absoluteString)")
         
@@ -297,6 +297,10 @@ class MusicPlayerService: NSObject, ObservableObject {
             
             player.play()
             print("[Preview Debug] AVPlayer.play() called")
+            
+            // 再生成功時にキャッシュに保存
+            print("[Preview Debug] Caching successfully played track: \(title) (ID: \(itemId))")
+            await cacheManager.cacheSuccessfulPlayback(url: url, itemId: itemId, title: title, player: player)
             
             // 少し待ってから状態を再確認
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
@@ -374,9 +378,14 @@ class MusicPlayerService: NSObject, ObservableObject {
                 player.removeObserver(self, forKeyPath: "status")
                 player.removeObserver(self, forKeyPath: "error")
                 player.removeObserver(self, forKeyPath: "rate")
+                // 自分で作成したプレイヤーのみnilにする
+                previewPlayer = nil
+            } else {
+                // キャッシュプレイヤーの場合は参照のみ解除、プレイヤー自体は保持
+                previewPlayer = nil
+                print("[Preview Debug] Cache player preserved, only reference cleared")
             }
         }
-        previewPlayer = nil
         
         // タイマーを確実に停止
         if let timer = previewTimer {
@@ -491,13 +500,16 @@ class MusicPlayerService: NSObject, ObservableObject {
             return
         }
         
-        // キャッシュされたプレイヤーを試す
-        if let cachedPlayer = cacheManager.getCachedPlayer(for: item.id) {
-            print("[Preview Debug] Using cached player for: \(item.name)")
+        // Apple Music IDをキャッシュキーとして使用
+        let cacheKey = item.appleMusicID ?? item.id
+        
+        // キャッシュされたプレイヤーを最優先で確認
+        if let cachedPlayer = cacheManager.getCachedPlayer(for: cacheKey) {
+            print("[Cache Info] 🎯 CACHE HIT: Using cached player for \(item.name)")
             
             // キャッシュされたプレイヤーが準備完了かチェック
-            guard cacheManager.isCached(itemId: item.id) else {
-                print("[Preview Debug] Cached player not ready, fallback to normal preview")
+            guard cacheManager.isCached(itemId: cacheKey) else {
+                print("[Cache Info] ⚠️ CACHE NOT READY: Cached player exists but not ready, fallback to normal preview")
                 // キャッシュが準備完了でない場合は通常のプレビューへフォールバック
                 if let appleMusicID = item.appleMusicID {
                     print("[Preview Debug] Starting MusicKit request for Apple Music ID: \(appleMusicID)")
@@ -529,11 +541,12 @@ class MusicPlayerService: NSObject, ObservableObject {
                 return
             }
             
+            // キャッシュプレイヤーを即座に利用
             previewPlayer = cachedPlayer
             isUsingCachedPlayer = true
             previewTimeRemaining = 30
             
-            print("[Preview Debug] Seeking cached player to zero and starting playback")
+            print("[Cache Info] ⚡ INSTANT PLAYBACK: Starting cached player immediately")
             await cachedPlayer.seek(to: .zero)
             cachedPlayer.play()
             playbackStatus = "Preview Playing (Cached)"
@@ -541,11 +554,11 @@ class MusicPlayerService: NSObject, ObservableObject {
             print("[Preview Debug] Starting timer for cached player")
             startPreviewTimer()
             
-            // キャッシュされたプレイヤーにはオブザーバーを追加しない
-            print("[Preview Debug] Cached player setup complete")
+            // キャッシュされたプレイヤーにはオブザーバーを追加しない（キャッシュマネージャーが管理）
+            print("[Cache Info] ✅ CACHE PLAYBACK: Setup complete, no API calls needed")
         } else {
             // キャッシュがない場合は通常の方法
-            print("[Preview Debug] No cache, using normal preview for: \(item.name)")
+            print("[Cache Info] ❌ CACHE MISS: No cache available for \(item.name), using MusicKit API")
             
             if let appleMusicID = item.appleMusicID {
                 print("[Preview Debug] Starting MusicKit request for Apple Music ID: \(appleMusicID)")
@@ -610,7 +623,9 @@ class MusicPlayerService: NSObject, ObservableObject {
     
     /// 効率的な隣接ページキャッシュ（現在+次ページのみ）
     func cacheAdjacentPages(items: [ListenLaterItem], currentIndex: Int) {
+        print("[MusicPlayer Debug] cacheAdjacentPages called - index: \(currentIndex), items count: \(items.count)")
         cacheManager.preloadAdjacent(for: items, currentIndex: currentIndex)
+        print("[MusicPlayer Debug] cacheAdjacentPages completed for index: \(currentIndex)")
     }
     
     /// 指定アイテム周辺のプレビューをキャッシュ（レガシー方式）

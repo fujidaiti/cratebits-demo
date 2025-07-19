@@ -54,22 +54,33 @@ class PreviewCacheManager: NSObject, ObservableObject {
     ///   - items: 全アイテムリスト
     ///   - currentIndex: 現在のインデックス
     func preloadAdjacent(for items: [ListenLaterItem], currentIndex: Int) {
-        guard currentIndex >= 0 && currentIndex < items.count else { return }
+        print("[Cache Debug] preloadAdjacent called - index: \(currentIndex), items count: \(items.count)")
+        
+        guard currentIndex >= 0 && currentIndex < items.count else { 
+            print("[Cache Debug] Invalid index range - currentIndex: \(currentIndex), items.count: \(items.count)")
+            return 
+        }
         
         print("[Cache Info] 🎯 Smart cache strategy: page \(currentIndex) + \(currentIndex + 1) (total items: \(items.count))")
         
         // 現在のページをフルキャッシュ
         let currentItem = items[currentIndex]
+        print("[Cache Debug] Preloading current page item: \(currentItem.name) (type: \(currentItem.type))")
         preloadItemWithStrategy(currentItem, isCurrentPage: true)
         
         // 次のページをプリロードキャッシュ
         if currentIndex + 1 < items.count {
             let nextItem = items[currentIndex + 1]
+            print("[Cache Debug] Preloading next page item: \(nextItem.name) (type: \(nextItem.type))")
             preloadItemWithStrategy(nextItem, isCurrentPage: false)
+        } else {
+            print("[Cache Debug] No next page to preload (at end of queue)")
         }
         
         // 前ページと離れたページのキャッシュを削除
+        print("[Cache Debug] Starting cleanup of distant cache")
         cleanupDistantCache(for: items, currentIndex: currentIndex)
+        print("[Cache Debug] preloadAdjacent completed")
     }
     
     /// 指定アイテム周辺のプレビューを事前キャッシュ（レガシー方式）
@@ -156,7 +167,7 @@ class PreviewCacheManager: NSObject, ObservableObject {
         print("[Cache Info] 🧹 CACHE clear: clearing all (\(cachedPlayers.count) items)")
         
         for (itemId, item) in cachedPlayers {
-            print("[Cache Info] 🗑️ CACHE deleted (clear): \(item.title) (ID: \(itemId))")
+            print("[Cache Info] 🗑️ CACHE deleted (clear): \(item.title) (Apple Music ID: \(itemId))")
             item.player.pause()
             // オブザーバーを削除
             removePlayerObservers(item.player)
@@ -164,6 +175,36 @@ class PreviewCacheManager: NSObject, ObservableObject {
         
         cachedPlayers.removeAll()
         accessOrder.removeAll()
+    }
+    
+    /// 再生成功したトラックをキャッシュに追加
+    /// - Parameters:
+    ///   - url: プレビューURL
+    ///   - itemId: Apple Music ID（キャッシュキー）
+    ///   - title: トラックタイトル
+    ///   - player: 再生中のAVPlayer
+    func cacheSuccessfulPlayback(url: URL, itemId: String, title: String, player: AVPlayer) async {
+        print("[Cache Info] 💾 CACHE created from successful playback: \(title) (Apple Music ID: \(itemId))")
+        
+        // 既にキャッシュ済みの場合はスキップ
+        if cachedPlayers[itemId] != nil {
+            print("[Cache Info] 🔄 Already cached, skipping successful playback cache: \(title) (Apple Music ID: \(itemId))")
+            return
+        }
+        
+        // 新しいプレイヤーをキャッシュ用に作成（再生中のプレイヤーは独立して管理）
+        let cachePlayer = AVPlayer(url: url)
+        var cachedItem = CachedPreviewItem(player: cachePlayer, url: url, itemId: itemId, title: title)
+        cachedItem.isReady = true // 既に動作確認済みのURLなので即座にready状態にする
+        
+        // キャッシュに追加
+        cachedPlayers[itemId] = cachedItem
+        updateAccessOrder(for: itemId)
+        
+        // キャッシュサイズ制限をチェック
+        enforceCacheLimit()
+        
+        print("[Cache Info] ✅ CACHE ready from successful playback: \(title) (Apple Music ID: \(itemId))")
     }
     
     /// キャッシュ状態をデバッグ出力
@@ -179,43 +220,52 @@ class PreviewCacheManager: NSObject, ObservableObject {
     
     /// 指定アイテムのプレビューを非同期でプリロード
     private func preloadPreview(for item: ListenLaterItem) {
-        let itemId = item.id
-        
-        // 既にキャッシュ済みの場合はスキップ（重複防止強化）
-        if cachedPlayers[itemId] != nil {
-            print("[Cache Info] 🔄 Already cached, skipping: \(item.name) (ID: \(itemId))")
-            return
-        }
-        
         // トラック以外またはApple Music IDがない場合はスキップ
         guard item.type == .track, let appleMusicID = item.appleMusicID else {
-            print("[Cache Info] ⏭️ Skipping non-track or no Apple Music ID: \(item.name) (type: \(item.type))")
+            print("[Cache Info] ⏭️ Skipping non-track or no Apple Music ID: \(item.name) (type: \(item.type)), appleMusicID: \(item.appleMusicID ?? "nil")")
             return
         }
         
-        print("[Cache Info] 🚀 PRE-LOAD started: \(item.name) (ID: \(itemId))")
+        // Apple Music IDをキャッシュキーとして使用
+        let cacheKey = appleMusicID
+        
+        print("[Cache Debug] preloadPreview called for: \(item.name) (ListenLaterItem.id: \(item.id), Apple Music ID: \(cacheKey), type: \(item.type))")
+        
+        // 既にキャッシュ済みの場合はスキップ（重複防止強化）
+        if cachedPlayers[cacheKey] != nil {
+            print("[Cache Info] 🔄 Already cached, skipping: \(item.name) (Apple Music ID: \(cacheKey))")
+            return
+        }
+        
+        print("[Cache Info] 🚀 PRE-LOAD started: \(item.name) (Apple Music ID: \(cacheKey))")
         
         // バックグラウンドでプレビューURL取得とプリロード
         Task {
+            print("[Cache Debug] Starting background task for: \(item.name)")
+            
             // 非同期処理中に既にキャッシュされた場合はスキップ
-            if await MainActor.run(body: { cachedPlayers[itemId] != nil }) {
+            if await MainActor.run(body: { cachedPlayers[cacheKey] != nil }) {
                 print("[Cache Debug] Item cached during async processing, skipping: \(item.name)")
                 return
             }
             
             do {
-                let request = MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: MusicItemID(appleMusicID))
+                print("[Cache Debug] Making MusicKit request for: \(item.name), Apple Music ID: \(cacheKey)")
+                let request = MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: MusicItemID(cacheKey))
                 let response = try await request.response()
+                
+                print("[Cache Debug] MusicKit response received for: \(item.name), items count: \(response.items.count)")
                 
                 guard let song = response.items.first,
                       let previewAssets = song.previewAssets,
                       !previewAssets.isEmpty,
                       let previewURL = previewAssets.first?.url else {
-                    print("[Cache Debug] No preview URL for item: \(item.name)")
+                    print("[Cache Debug] No preview URL for item: \(item.name) - song: \(response.items.first != nil), previewAssets: \(response.items.first?.previewAssets?.count ?? 0)")
                     return
                 }
                 
-                await createCachedPlayer(url: previewURL, itemId: itemId, title: item.name)
+                print("[Cache Debug] Preview URL found for: \(item.name), URL: \(previewURL)")
+                await createCachedPlayer(url: previewURL, itemId: cacheKey, title: item.name)
                 
             } catch {
                 print("[Cache Error] Failed to preload preview for \(item.name): \(error)")
@@ -232,7 +282,7 @@ class PreviewCacheManager: NSObject, ObservableObject {
     
     /// キャッシュ用プレイヤーを作成
     private func createCachedPlayer(url: URL, itemId: String, title: String) async {
-        print("[Cache Info] 💾 CACHE created: \(title) (ID: \(itemId))")
+        print("[Cache Info] 💾 CACHE created: \(title) (Apple Music ID: \(itemId))")
         
         // メインスレッドでプレイヤーを作成
         let player = AVPlayer(url: url)
@@ -261,7 +311,7 @@ class PreviewCacheManager: NSObject, ObservableObject {
                 Task { @MainActor [weak self] in
                     if player.status == .readyToPlay {
                         let title = self?.cachedPlayers[itemId]?.title ?? "Unknown"
-                        print("[Cache Info] ✅ CACHE ready: \(title) (ID: \(itemId))")
+                        print("[Cache Info] ✅ CACHE ready: \(title) (Apple Music ID: \(itemId))")
                         
                         if var cachedItem = self?.cachedPlayers[itemId] {
                             cachedItem.isReady = true
@@ -303,7 +353,7 @@ class PreviewCacheManager: NSObject, ObservableObject {
             guard let oldestItemId = accessOrder.first else { break }
             
             let oldestTitle = cachedPlayers[oldestItemId]?.title ?? "Unknown"
-            print("[Cache Info] 🗑️ CACHE deleted (LRU): \(oldestTitle) (ID: \(oldestItemId))")
+            print("[Cache Info] 🗑️ CACHE deleted (LRU): \(oldestTitle) (Apple Music ID: \(oldestItemId))")
             
             if let oldestItem = cachedPlayers[oldestItemId] {
                 oldestItem.player.pause()
@@ -317,61 +367,76 @@ class PreviewCacheManager: NSObject, ObservableObject {
     
     /// 戦略的アイテムキャッシュ（表示状態に応じた楽曲数制御）
     private func preloadItemWithStrategy(_ item: ListenLaterItem, isCurrentPage: Bool) {
+        print("[Cache Debug] preloadItemWithStrategy called for: \(item.name) (type: \(item.type), isCurrentPage: \(isCurrentPage))")
+        
         switch item.type {
         case .track:
             // 楽曲は常に1曲
+            print("[Cache Debug] Processing track: \(item.name)")
             preloadPreview(for: item)
             
         case .album, .artist:
             // アルバム/アーティストはピックアップ楽曲の先頭N曲
-            guard let pickedTracks = item.pickedTracks, !pickedTracks.isEmpty else { return }
+            guard let pickedTracks = item.pickedTracks, !pickedTracks.isEmpty else { 
+                print("[Cache Debug] No picked tracks for \(item.type.displayName): \(item.name)")
+                return 
+            }
             
             let cacheCount = isCurrentPage ? min(3, pickedTracks.count) : min(2, pickedTracks.count)
             let tracksToCache = Array(pickedTracks.prefix(cacheCount))
             
             print("[Cache Info] 📋 Strategy: \(item.type.displayName) '\(item.name)' → \(cacheCount) tracks (current page: \(isCurrentPage))")
+            print("[Cache Debug] Picked tracks: \(pickedTracks.map { $0.name })")
+            print("[Cache Debug] Tracks to cache: \(tracksToCache.map { $0.name })")
             
-            for track in tracksToCache {
+            for (index, track) in tracksToCache.enumerated() {
+                print("[Cache Debug] Processing picked track \(index + 1)/\(cacheCount): \(track.name)")
                 preloadPreview(for: track)
             }
         }
+        
+        print("[Cache Debug] preloadItemWithStrategy completed for: \(item.name)")
     }
     
     /// 離れたページのキャッシュを削除（現在+次ページ以外）
     private func cleanupDistantCache(for items: [ListenLaterItem], currentIndex: Int) {
-        // 現在ページと次ページの有効アイテムIDを収集
-        var validItemIds = Set<String>()
+        // 現在ページと次ページの有効Apple Music IDを収集
+        var validAppleMusicIds = Set<String>()
         
         // 現在ページ
         if currentIndex >= 0 && currentIndex < items.count {
             let currentItem = items[currentIndex]
-            validItemIds.insert(currentItem.id)
+            if let appleMusicID = currentItem.appleMusicID {
+                validAppleMusicIds.insert(appleMusicID)
+            }
             
             // アルバム/アーティストの場合、ピックアップ楽曲も含める
             if let pickedTracks = currentItem.pickedTracks {
                 let currentPageTracks = Array(pickedTracks.prefix(3))
-                validItemIds.formUnion(currentPageTracks.map { $0.id })
+                validAppleMusicIds.formUnion(currentPageTracks.compactMap { $0.appleMusicID })
             }
         }
         
         // 次ページ
         if currentIndex + 1 < items.count {
             let nextItem = items[currentIndex + 1]
-            validItemIds.insert(nextItem.id)
+            if let appleMusicID = nextItem.appleMusicID {
+                validAppleMusicIds.insert(appleMusicID)
+            }
             
             // アルバム/アーティストの場合、ピックアップ楽曲も含める
             if let pickedTracks = nextItem.pickedTracks {
                 let nextPageTracks = Array(pickedTracks.prefix(2))
-                validItemIds.formUnion(nextPageTracks.map { $0.id })
+                validAppleMusicIds.formUnion(nextPageTracks.compactMap { $0.appleMusicID })
             }
         }
         
         // 有効範囲外のキャッシュを削除
-        let itemsToRemove = cachedPlayers.keys.filter { !validItemIds.contains($0) }
+        let itemsToRemove = cachedPlayers.keys.filter { !validAppleMusicIds.contains($0) }
         
         for itemId in itemsToRemove {
             let itemTitle = cachedPlayers[itemId]?.title ?? "Unknown"
-            print("[Cache Info] 🗑️ CACHE deleted (distant): \(itemTitle) (ID: \(itemId))")
+            print("[Cache Info] 🗑️ CACHE deleted (distant): \(itemTitle) (Apple Music ID: \(itemId))")
             
             if let item = cachedPlayers[itemId] {
                 item.player.pause()
@@ -386,13 +451,13 @@ class PreviewCacheManager: NSObject, ObservableObject {
     /// 範囲外キャッシュを削除（レガシー方式）
     private func cleanupOutOfRangeCache(for items: [ListenLaterItem], currentIndex: Int, range: Int) {
         let validRange = max(0, currentIndex - range)...min(items.count - 1, currentIndex + range)
-        let validItemIds = Set(validRange.map { items[$0].id })
+        let validAppleMusicIds = Set(validRange.compactMap { items[$0].appleMusicID })
         
-        let itemsToRemove = cachedPlayers.keys.filter { !validItemIds.contains($0) }
+        let itemsToRemove = cachedPlayers.keys.filter { !validAppleMusicIds.contains($0) }
         
         for itemId in itemsToRemove {
             let itemTitle = cachedPlayers[itemId]?.title ?? "Unknown"
-            print("[Cache Info] 🗑️ CACHE deleted (out-of-range): \(itemTitle) (ID: \(itemId))")
+            print("[Cache Info] 🗑️ CACHE deleted (out-of-range): \(itemTitle) (Apple Music ID: \(itemId))")
             
             if let item = cachedPlayers[itemId] {
                 item.player.pause()

@@ -81,9 +81,16 @@ struct ListenNowView: View {
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $currentIndex)
         .onChange(of: currentIndex) { _, newIndex in
-            guard let newIndex = newIndex, newIndex < storage.listenNowQueue.count else { return }
+            guard let newIndex = newIndex, newIndex < storage.listenNowQueue.count else { 
+                print("[ListenNow Debug] onChange: Invalid index - newIndex: \(String(describing: newIndex)), queue count: \(storage.listenNowQueue.count)")
+                return 
+            }
+            
+            print("[ListenNow Debug] onChange triggered - newIndex: \(newIndex), queue count: \(storage.listenNowQueue.count)")
+            print("[ListenNow Debug] Current item: \(storage.listenNowQueue[newIndex].name) (type: \(storage.listenNowQueue[newIndex].type))")
             
             // 効率的な隣接ページキャッシュに変更
+            print("[ListenNow Debug] Calling cacheAdjacentPages for index: \(newIndex)")
             musicPlayer.cacheAdjacentPages(items: storage.listenNowQueue, currentIndex: newIndex)
             
             // プレビューモード中は自動でプレビューを開始
