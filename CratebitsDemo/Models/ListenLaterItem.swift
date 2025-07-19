@@ -1,0 +1,129 @@
+//
+//  ListenLaterItem.swift
+//  CratebitsDemo
+//
+//  Created by Claude on 2025/07/16.
+//
+
+import Foundation
+import MusicKit
+
+/// Listen Laterアイテムの種類
+enum ItemType: String, CaseIterable, Codable {
+    case track = "track"
+    case album = "album"
+    case artist = "artist"
+    
+    var displayName: String {
+        switch self {
+        case .track: return "Track"
+        case .album: return "Album"
+        case .artist: return "Artist"
+        }
+    }
+}
+
+/// Listen Laterに保存されるアイテム
+struct ListenLaterItem: Identifiable, Codable {
+    let id: String
+    let type: ItemType
+    let name: String
+    let artist: String
+    let dateAdded: Date
+    let appleMusicID: String?
+    var pickedTracks: [ListenLaterItem]? // アルバム/アーティストの場合のピックアップ楽曲
+    
+    /// 表示用のテキスト
+    var displayText: String {
+        switch type {
+        case .track:
+            return "\(name) - \(artist)"
+        case .album:
+            return "\(name) (\(artist))"
+        case .artist:
+            return artist
+        }
+    }
+    
+    /// トラック用のイニシャライザ
+    static func track(name: String, artist: String, appleMusicID: String? = nil) -> ListenLaterItem {
+        return ListenLaterItem(
+            id: UUID().uuidString,
+            type: .track,
+            name: name,
+            artist: artist,
+            dateAdded: Date(),
+            appleMusicID: appleMusicID,
+            pickedTracks: nil
+        )
+    }
+    
+    /// アルバム用のイニシャライザ
+    static func album(name: String, artist: String, appleMusicID: String? = nil) -> ListenLaterItem {
+        return ListenLaterItem(
+            id: UUID().uuidString,
+            type: .album,
+            name: name,
+            artist: artist,
+            dateAdded: Date(),
+            appleMusicID: appleMusicID,
+            pickedTracks: nil
+        )
+    }
+    
+    /// アーティスト用のイニシャライザ
+    static func artist(name: String, appleMusicID: String? = nil) -> ListenLaterItem {
+        return ListenLaterItem(
+            id: UUID().uuidString,
+            type: .artist,
+            name: name,
+            artist: name,
+            dateAdded: Date(),
+            appleMusicID: appleMusicID,
+            pickedTracks: nil
+        )
+    }
+}
+
+/// MusicKitのTrackからListenLaterItemを作成するための拡張
+extension ListenLaterItem {
+    init(from track: Track) {
+        self.id = UUID().uuidString
+        self.type = .track
+        self.name = track.title
+        self.artist = track.artistName
+        self.dateAdded = Date()
+        self.appleMusicID = track.id.rawValue
+        self.pickedTracks = nil
+    }
+    
+    init(from song: Song) {
+        self.id = UUID().uuidString
+        self.type = .track
+        self.name = song.title
+        self.artist = song.artistName
+        self.dateAdded = Date()
+        self.appleMusicID = song.id.rawValue
+        self.pickedTracks = nil
+    }
+    
+    init(from album: Album) {
+        self.id = UUID().uuidString
+        self.type = .album
+        self.name = album.title
+        self.artist = album.artistName
+        self.dateAdded = Date()
+        self.appleMusicID = album.id.rawValue
+        self.pickedTracks = nil
+    }
+    
+    init(from artist: Artist) {
+        self.id = UUID().uuidString
+        self.type = .artist
+        self.name = artist.name
+        self.artist = artist.name
+        self.dateAdded = Date()
+        self.appleMusicID = artist.id.rawValue
+        self.pickedTracks = nil
+    }
+}
