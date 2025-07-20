@@ -586,10 +586,7 @@ struct TrackCarouselView: View {
                     HStack(spacing: spacing) {
                         ForEach(tracks.indices, id: \.self) { index in
                             TrackCardView(
-                                track: tracks[index],
-                                onTap: {
-                                    handleTrackSelection(index: index)
-                                }
+                                track: tracks[index]
                             )
                             .frame(width: cardWidth)
                             .id(index)
@@ -628,20 +625,6 @@ struct TrackCarouselView: View {
         }
     }
     
-    /// トラック選択時の処理
-    private func handleTrackSelection(index: Int) {
-        print("[Carousel Debug] Track tapped at index: \(index)")
-        
-        // インデックスが同じ場合は何もしない（重複防止）
-        guard index != currentIndex else {
-            print("[Carousel Debug] Same index selected, skipping")
-            return
-        }
-        
-        currentIndex = index
-        
-        print("[Carousel Debug] Index updated, onChange will handle preview switch")
-    }
     
     
     /// 初期状態のセットアップ
@@ -657,7 +640,6 @@ struct TrackCarouselView: View {
 /// 個別楽曲カードビュー
 struct TrackCardView: View {
     let track: ListenLaterItem
-    let onTap: () -> Void
     
     var body: some View {
         VStack {
@@ -676,9 +658,6 @@ struct TrackCardView: View {
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color.gray.opacity(0.05))
         )
-        .onTapGesture {
-            onTap()
-        }
     }
 }
 
