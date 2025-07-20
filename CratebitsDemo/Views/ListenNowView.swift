@@ -16,6 +16,8 @@ struct ListenNowView: View {
     @StateObject private var playlistGenerator = PlaylistGenerationService()
     @StateObject private var libraryService = AppleMusicLibraryService()
     @State private var currentIndex: Int? = 0
+    @State private var scrolledPageID: Int? // スクロール位置の実際の検知用
+    @State private var debounceTask: Task<Void, Never>? // デバウンス処理用
     
     var body: some View {
         NavigationView {
@@ -68,56 +70,115 @@ struct ListenNowView: View {
     
     /// TikTok風の楽曲カルーセル表示（縦スクロール）
     private func listenNowCarousel(geometry: GeometryProxy) -> some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 0) {
-                ForEach(storage.listenNowQueue.indices, id: \.self) { index in
-                    ListenNowCardView(
-                        item: storage.listenNowQueue[index],
-                        pageIndex: index,
-                        onEvaluate: { evaluation in
-                            handleEvaluation(evaluation, for: storage.listenNowQueue[index])
-                        },
-                        onPlay: {
-                            playCurrentItem()
-                        },
-                        onPreview: { trackIndex in
-                            playPreviewAndEnterMode(for: storage.listenNowQueue[index], trackIndex: trackIndex)
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    ForEach(storage.listenNowQueue.indices, id: \.self) { index in
+                        ListenNowCardView(
+                            item: storage.listenNowQueue[index],
+                            pageIndex: index,
+                            onEvaluate: { evaluation in
+                                handleEvaluation(evaluation, for: storage.listenNowQueue[index])
+                            },
+                            onPlay: {
+                                playCurrentItem()
+                            },
+                            onPreview: { trackIndex in
+                                playPreviewAndEnterMode(for: storage.listenNowQueue[index], trackIndex: trackIndex)
+                            }
+                        )
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .id(index)
+                        .onAppear {
+                            print("[ListenNow Debug] 👁 Card \(index) appeared: '\(storage.listenNowQueue[index].name)'")
                         }
-                    )
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                    .clipped()
-                    .id(index)
+                        .onDisappear {
+                            print("[ListenNow Debug] 👁 Card \(index) disappeared: '\(storage.listenNowQueue[index].name)'")
+                        }
+                    }
                 }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: $scrolledPageID)
+            .onChange(of: scrolledPageID) { oldPageID, newPageID in
+                print("[ListenNow Debug] 🔍 scrolledPageID onChange triggered: \(String(describing: oldPageID)) -> \(String(describing: newPageID))")
+                handlePageChange(to: newPageID)
+            }
+            .onAppear {
+                // 初期表示時のscrolledPageIDを設定
+                scrolledPageID = currentIndex
+                print("[ListenNow Debug] 🚀 Carousel onAppear: set scrolledPageID to \(String(describing: currentIndex))")
             }
         }
-        .scrollTargetBehavior(.paging)
-        .scrollPosition(id: $currentIndex)
-        .onChange(of: currentIndex) { oldIndex, newIndex in
-            print("[ListenNow Debug] 🔄 PAGE NAVIGATION: from \(String(describing: oldIndex)) to \(String(describing: newIndex))")
-            
-            guard let newIndex = newIndex, newIndex < storage.listenNowQueue.count else { 
-                print("[ListenNow Debug] onChange: Invalid index - newIndex: \(String(describing: newIndex)), queue count: \(storage.listenNowQueue.count)")
-                return 
-            }
-            
-            let item = storage.listenNowQueue[newIndex]
-            print("[ListenNow Debug] 📄 NAVIGATED TO PAGE \(newIndex): '\(item.name)' (type: \(item.type))")
-            if let appleMusicID = item.appleMusicID {
-                print("[ListenNow Debug] 🆔 Apple Music ID: \(appleMusicID)")
-            }
-            
-            // 新しいキャッシュシステムでフォーカス変更を処理（バックグラウンドで実行）
-            print("[ListenNow Debug] 🎯 Calling handleFocusChange(to: \(newIndex))")
-            musicPlayer.handleFocusChange(to: newIndex)
+    }
+    
+    /// ページ変更時の処理
+    private func handlePageChange(to newPageID: Int?) {
+        print("[ListenNow Debug] 🔄 handlePageChange called with pageID: \(String(describing: newPageID))")
+        print("[ListenNow Debug] 🔄 Current preview mode status: \(musicPlayer.isPreviewMode)")
+        print("[ListenNow Debug] 🔄 Queue count: \(storage.listenNowQueue.count)")
+        
+        guard let newPageID = newPageID, newPageID < storage.listenNowQueue.count else { 
+            print("[ListenNow Debug] ❌ handlePageChange: Invalid pageID - newPageID: \(String(describing: newPageID)), queue count: \(storage.listenNowQueue.count)")
+            return 
+        }
+        
+        print("[ListenNow Debug] ✅ ScrolledPageID changed to: \(newPageID)")
+        
+        // currentIndexを即座に更新（UI応答性のため）
+        let oldCurrentIndex = currentIndex
+        currentIndex = newPageID
+        print("[ListenNow Debug] 📍 Updated currentIndex from \(String(describing: oldCurrentIndex)) to \(newPageID)")
+        
+        let item = storage.listenNowQueue[newPageID]
+        print("[ListenNow Debug] 📄 NAVIGATED TO PAGE \(newPageID): '\(item.name)' (type: \(item.type))")
+        
+        // プレビューモード中のみキャッシュシステムでフォーカス変更を処理
+        if musicPlayer.isPreviewMode {
+            print("[ListenNow Debug] 🎯 Preview mode active - Calling handleFocusChange(to: \(newPageID))")
+            musicPlayer.handleFocusChange(to: newPageID)
             print("[ListenNow Debug] 🎯 handleFocusChange started in background")
+        } else {
+            print("[ListenNow Debug] 🎯 Preview mode inactive - Skipping handleFocusChange to avoid unnecessary preloading")
+        }
+        
+        // プレビューモード中はデバウンス処理でプレビューを切り替え
+        if musicPlayer.isPreviewMode {
+            print("[ListenNow Debug] 🎧 ✅ Preview mode is ACTIVE, starting debounced preview for: \(item.name)")
             
-            // プレビューモード中は自動でプレビューを開始
-            if musicPlayer.isPreviewMode {
-                print("[ListenNow Debug] 🎧 Preview mode active, starting preview for: \(item.name)")
-                Task {
-                    await musicPlayer.playPreviewInstantly(for: item)
+            // 前のタスクをキャンセル
+            debounceTask?.cancel()
+            print("[ListenNow Debug] 🎧 ⏹ Cancelled previous debounce task")
+            
+            // 新しいデバウンスタスクを開始
+            debounceTask = Task {
+                do {
+                    print("[ListenNow Debug] 🎧 ⏱ Starting 300ms debounce wait...")
+                    try await Task.sleep(nanoseconds: 300_000_000) // 300ms待機
+                    
+                    if !Task.isCancelled {
+                        print("[ListenNow Debug] 🎧 ✅ Debounce completed: Auto-switching preview to: \(item.name)")
+                        
+                        // ピックアップトラックがある場合は最初のトラックを再生
+                        if let pickedTracks = item.pickedTracks, !pickedTracks.isEmpty {
+                            print("[ListenNow Debug] 🎧 🎵 Playing picked track: \(pickedTracks[0].name)")
+                            await musicPlayer.playPreviewInstantly(for: pickedTracks[0])
+                        } else {
+                            print("[ListenNow Debug] 🎧 🎵 Playing main item: \(item.name)")
+                            await musicPlayer.playPreviewInstantly(for: item)
+                        }
+                        print("[ListenNow Debug] 🎧 ✅ Preview playback request sent")
+                    } else {
+                        print("[ListenNow Debug] 🎧 ❌ Debounce task was cancelled")
+                    }
+                } catch {
+                    print("[ListenNow Debug] 🎧 ❌ Page preview switch task cancelled: \(error)")
                 }
             }
+        } else {
+            print("[ListenNow Debug] 🎧 ❌ Preview mode is NOT active - no automatic preview switching")
         }
     }
     
@@ -253,16 +314,24 @@ struct ListenNowView: View {
     
     /// プレビューを開始してプレビューモードに入る
     private func playPreviewAndEnterMode(for item: ListenLaterItem, trackIndex: Int?) {
+        print("[ListenNow Debug] 🎧 🚀 playPreviewAndEnterMode called for: \(item.name)")
+        print("[ListenNow Debug] 🎧 🚀 trackIndex: \(String(describing: trackIndex))")
+        print("[ListenNow Debug] 🎧 🚀 Entering preview mode...")
+        
         musicPlayer.enterPreviewMode()
+        
+        print("[ListenNow Debug] 🎧 ✅ Preview mode entered, status: \(musicPlayer.isPreviewMode)")
         
         Task {
             // ピックアップトラックがある場合（アルバム・アーティスト）でtrackIndexが指定されている場合は、そのトラックを再生
             if let trackIndex = trackIndex,
                let pickedTracks = item.pickedTracks,
                trackIndex < pickedTracks.count {
+                print("[ListenNow Debug] 🎧 🎵 Playing picked track [\(trackIndex)]: \(pickedTracks[trackIndex].name)")
                 await musicPlayer.playPreviewInstantly(for: pickedTracks[trackIndex])
             } else {
                 // 単一トラックまたはtrackIndexが未指定の場合は、元のアイテムを再生
+                print("[ListenNow Debug] 🎧 🎵 Playing main item: \(item.name)")
                 await musicPlayer.playPreviewInstantly(for: item)
             }
         }
