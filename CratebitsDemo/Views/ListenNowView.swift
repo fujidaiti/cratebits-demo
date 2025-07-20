@@ -80,8 +80,8 @@ struct ListenNowView: View {
                         onPlay: {
                             playCurrentItem()
                         },
-                        onPreview: {
-                            playPreviewAndEnterMode(for: storage.listenNowQueue[index])
+                        onPreview: { trackIndex in
+                            playPreviewAndEnterMode(for: storage.listenNowQueue[index], trackIndex: trackIndex)
                         }
                     )
                     .frame(width: geometry.size.width, height: geometry.size.height)
@@ -252,13 +252,20 @@ struct ListenNowView: View {
     }
     
     /// プレビューを開始してプレビューモードに入る
-    private func playPreviewAndEnterMode(for item: ListenLaterItem) {
+    private func playPreviewAndEnterMode(for item: ListenLaterItem, trackIndex: Int?) {
         musicPlayer.enterPreviewMode()
         
         Task {
-            await musicPlayer.playPreviewInstantly(for: item)
+            // ピックアップトラックがある場合（アルバム・アーティスト）でtrackIndexが指定されている場合は、そのトラックを再生
+            if let trackIndex = trackIndex,
+               let pickedTracks = item.pickedTracks,
+               trackIndex < pickedTracks.count {
+                await musicPlayer.playPreviewInstantly(for: pickedTracks[trackIndex])
+            } else {
+                // 単一トラックまたはtrackIndexが未指定の場合は、元のアイテムを再生
+                await musicPlayer.playPreviewInstantly(for: item)
+            }
         }
-        
     }
     
     /// アイテムのプレビューを再生
@@ -363,7 +370,7 @@ struct ListenNowCardView: View {
     let pageIndex: Int
     let onEvaluate: (EvaluationType) -> Void
     let onPlay: () -> Void
-    let onPreview: () -> Void
+    let onPreview: (Int?) -> Void
     
     @EnvironmentObject var musicPlayer: MusicPlayerService
     @State private var currentTrackIndex = 0
@@ -439,7 +446,14 @@ struct ListenNowCardView: View {
             
             // 再生ボタン
             HStack(spacing: 20) {
-                Button(action: onPreview) {
+                Button(action: { 
+                    // ピックアップトラックがある場合は現在のトラックインデックスを渡す
+                    if item.pickedTracks != nil {
+                        onPreview(currentTrackIndex)
+                    } else {
+                        onPreview(nil)
+                    }
+                }) {
                     HStack {
                         Image(systemName: "play.circle")
                         Text("Preview")
@@ -573,6 +587,8 @@ struct TrackCarouselView: View {
     let onCarouselIndexChange: ((Int) -> Void)? // カルーセルインデックス変更時のコールバック（オプショナル）
     
     @EnvironmentObject var musicPlayer: MusicPlayerService
+    @State private var scrolledID: Int?
+    @State private var debounceTask: Task<Void, Never>?
     
     var body: some View {
         GeometryReader { geometry in
@@ -596,30 +612,48 @@ struct TrackCarouselView: View {
                     .scrollTargetLayout()
                 }
                 .scrollTargetBehavior(.viewAligned)
-                .scrollPosition(id: .constant(currentIndex))
-                .onChange(of: currentIndex) { _, newIndex in
-                    guard newIndex < tracks.count else { return }
+                .scrollPosition(id: $scrolledID)
+                .onChange(of: scrolledID) { _, newID in
+                    guard let newID = newID, newID < tracks.count else { return }
                     
-                    print("[Carousel Debug] Index changed to: \(newIndex)")
+                    print("[Carousel Debug] ScrolledID changed to: \(newID)")
                     
-                    // スクロール位置を更新
-                    withAnimation(.easeInOut(duration: 0.5)) {
-                        proxy.scrollTo(newIndex, anchor: .center)
-                    }
+                    // currentIndexを即座に更新（UI応答性のため）
+                    currentIndex = newID
                     
-                    // プレビューモード中は自動でプレビューを切り替え
+                    // プレビューモード中はデバウンス処理でプレビューを切り替え
                     if musicPlayer.isPreviewMode {
-                        print("[Carousel Debug] Auto-switching preview to track: \(tracks[newIndex].name)")
-                        onTrackPreview(tracks[newIndex])
+                        // 前のタスクをキャンセル
+                        debounceTask?.cancel()
+                        
+                        // 新しいデバウンスタスクを開始
+                        debounceTask = Task {
+                            do {
+                                try await Task.sleep(nanoseconds: 300_000_000) // 300ms待機
+                                
+                                if !Task.isCancelled {
+                                    print("[Carousel Debug] Debounced: Auto-switching preview to track: \(tracks[newID].name)")
+                                    onTrackPreview(tracks[newID])
+                                    
+                                    print("[Carousel Debug] Debounced: Notifying parent of carousel index change: \(newID)")
+                                    onCarouselIndexChange?(newID)
+                                }
+                            } catch {
+                                // Task.sleep がキャンセルされた場合
+                                print("[Carousel Debug] Debounce task cancelled")
+                            }
+                        }
                     }
-                    
-                    // カルーセルインデックス変更を上位に通知
-                    print("[Carousel Debug] Notifying parent of carousel index change: \(newIndex)")
-                    onCarouselIndexChange?(newIndex)
                 }
                 .onAppear {
+                    // 初期表示時のscrolledIDを設定
+                    scrolledID = currentIndex
                     // 初期表示時のキャッシュとプレビュー
                     setupInitialState()
+                }
+                .onDisappear {
+                    // ビューが消える時にデバウンスタスクをキャンセル
+                    debounceTask?.cancel()
                 }
             }
         }
@@ -633,6 +667,8 @@ struct TrackCarouselView: View {
         if musicPlayer.isPreviewMode && currentIndex < tracks.count {
             print("[Carousel Debug] Initial preview for track: \(tracks[currentIndex].name)")
             onTrackPreview(tracks[currentIndex])
+            // プレビューモード中の場合のみキャッシュ処理を通知
+            onCarouselIndexChange?(currentIndex)
         }
     }
 }
