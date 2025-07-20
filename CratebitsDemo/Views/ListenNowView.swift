@@ -332,11 +332,6 @@ struct ListenNowView: View {
     private func playPreviewAndEnterMode(for item: ListenLaterItem, trackIndex: Int?) {
         print("[ListenNow Debug] 🎧 🚀 playPreviewAndEnterMode called for: \(item.name)")
         print("[ListenNow Debug] 🎧 🚀 trackIndex: \(String(describing: trackIndex))")
-        print("[ListenNow Debug] 🎧 🚀 Entering preview mode...")
-        
-        musicPlayer.enterPreviewMode()
-        
-        print("[ListenNow Debug] 🎧 ✅ Preview mode entered, status: \(musicPlayer.isPreviewMode)")
         
         Task {
             // ピックアップトラックがある場合（アルバム・アーティスト）でtrackIndexが指定されている場合は、そのトラックを再生
@@ -350,6 +345,7 @@ struct ListenNowView: View {
                 print("[ListenNow Debug] 🎧 🎵 Playing main item: \(item.name)")
                 await musicPlayer.playPreviewInstantly(for: item)
             }
+            print("[ListenNow Debug] 🎧 ✅ Preview mode status: \(musicPlayer.isPreviewMode)")
         }
     }
     

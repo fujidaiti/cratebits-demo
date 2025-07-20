@@ -32,7 +32,6 @@ class MusicPlayerService: NSObject, ObservableObject {
     
     // 現在のプレビュー情報
     private var currentPreviewURL: URL?
-    private var shouldLoopPreview = false
     private var isUsingCachedPlayer = false
     
     override init() {
@@ -252,15 +251,14 @@ class MusicPlayerService: NSObject, ObservableObject {
         print("[Preview Debug] Starting preview playback for: \(title)")
         print("[Preview Debug] URL: \(url.absoluteString)")
         
-        stopPreview()
+        // 通常のプレビューでは既存のモードを完全リセット
+        exitPreviewMode()
         isPreviewMode = true
-        shouldLoopPreview = false  // 通常のプレビューはループしない
         previewTimeRemaining = 30
         currentTrack = title
         currentPreviewURL = url
         playbackStatus = "Preview Playing"
         debugMessage = "Debug: プレイヤー初期化中..."
-        print("[Preview Debug] Set shouldLoopPreview = false for normal preview")
         
         // URLの有効性をチェック
         do {
@@ -272,7 +270,7 @@ class MusicPlayerService: NSObject, ObservableObject {
                 if httpResponse.statusCode != 200 {
                     self.playbackStatus = "Preview URL unavailable (\(httpResponse.statusCode))"
                     self.debugMessage = "Error: HTTP \(httpResponse.statusCode) - URLが無効"
-                    self.stopPreview()
+                    self.exitPreviewMode()
                     return
                 }
             }
@@ -280,7 +278,7 @@ class MusicPlayerService: NSObject, ObservableObject {
             print("[Preview Error] URL check failed: \(error)")
             self.playbackStatus = "Preview URL check failed"
             self.debugMessage = "Error: URLチェック失敗 - \(error.localizedDescription)"
-            self.stopPreview()
+            self.exitPreviewMode()
             return
         }
         
@@ -337,7 +335,7 @@ class MusicPlayerService: NSObject, ObservableObject {
             return
         }
         
-        print("[Preview Debug] Starting preview timer - mode: \(isPreviewMode), shouldLoop: \(shouldLoopPreview)")
+        print("[Preview Debug] Starting preview timer - mode: \(isPreviewMode)")
         previewTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
             Task { @MainActor [weak self] in
                 guard let self = self else { 
@@ -361,22 +359,17 @@ class MusicPlayerService: NSObject, ObservableObject {
                 self.previewTimeRemaining -= 1
                 
                 if self.previewTimeRemaining <= 0 {
-                    // プレビューモード中はループ再生
-                    if self.shouldLoopPreview {
-                        print("[Preview Debug] Restarting preview (loop mode)")
-                        self.restartCurrentPreview()
-                    } else {
-                        print("[Preview Debug] Stopping preview after 30s")
-                        self.stopPreview()
-                    }
+                    print("[Preview Debug] Preview time ended - stopping current preview but keeping preview mode active")
+                    // プレビューモードを維持し、現在のプレビューのみ停止
+                    self.stopPreview()
                 }
             }
         }
     }
     
-    /// プレビュー再生を停止
+    /// プレビュー再生を停止（プレビューモードは維持）
     func stopPreview() {
-        print("[Preview Debug] stopPreview() called - timeRemaining: \(previewTimeRemaining), shouldLoop: \(shouldLoopPreview)")
+        print("[Preview Debug] stopPreview() called - keeping preview mode active")
         
         if let player = previewPlayer {
             player.pause()
@@ -394,24 +387,19 @@ class MusicPlayerService: NSObject, ObservableObject {
             }
         }
         
-        // タイマーを確実に停止
+        // タイマーを停止（プレビューモードは維持）
         if let timer = previewTimer {
-            print("[Preview Debug] Invalidating existing timer")
+            print("[Preview Debug] Invalidating existing timer but keeping preview mode")
             timer.invalidate()
-        } else {
-            print("[Preview Debug] No timer to invalidate")
         }
         previewTimer = nil
         
-        isPreviewMode = false
-        shouldLoopPreview = false
-        previewTimeRemaining = 30
-        currentPreviewItem = nil
+        // プレビューモードは維持、その他のみリセット
         currentPreviewURL = nil
         isUsingCachedPlayer = false
-        playbackStatus = "Stopped"
-        debugMessage = "Debug: プレビュー停止"
-        print("[Preview Debug] Preview stopped - cleanup complete")
+        playbackStatus = "Preview Paused"
+        debugMessage = "Debug: プレビュー一時停止（モード継続）"
+        print("[Preview Debug] Preview paused - preview mode still active")
     }
     
     /// プレビューモードかどうかを確認
@@ -437,8 +425,8 @@ class MusicPlayerService: NSObject, ObservableObject {
                             self.playbackStatus = "Preview playback failed"
                             print("[Preview Error] AVPlayer failed: \(error)")
                         }
-                        print("[Preview Debug] Calling stopPreview() due to AVPlayer failure")
-                        self.stopPreview()
+                        print("[Preview Debug] Calling exitPreviewMode() due to AVPlayer failure")
+                        self.exitPreviewMode()
                     case .unknown:
                         self.debugMessage = "Debug: AVPlayer状態不明"
                         print("[Preview Debug] AVPlayer status unknown")
@@ -461,8 +449,8 @@ class MusicPlayerService: NSObject, ObservableObject {
                         self.debugMessage = "Error: AVPlayerエラー - \(error.localizedDescription)"
                         self.playbackStatus = "Preview error"
                         print("[Preview Error] AVPlayer error: \(error)")
-                        print("[Preview Debug] Calling stopPreview() due to AVPlayer error")
-                        self.stopPreview()
+                        print("[Preview Debug] Calling exitPreviewMode() due to AVPlayer error")
+                        self.exitPreviewMode()
                     }
                 default:
                     break
@@ -483,13 +471,17 @@ class MusicPlayerService: NSObject, ObservableObject {
             return
         }
         
-        stopPreview()
+        // 既にプレビューモード中なら現在のプレビューのみ停止、そうでなければプレビューモード開始
+        if isPreviewMode {
+            stopPreview()
+        } else {
+            // 新しいプレビューモード開始時のみリセット（完全停止してから開始）
+            exitPreviewMode()
+            isPreviewMode = true
+        }
         currentPreviewItem = item
-        isPreviewMode = true
-        shouldLoopPreview = true  // プレビューモードでは常にループを有効
         currentTrack = item.name
         playbackStatus = "Preview Starting"
-        print("[Preview Debug] Set shouldLoopPreview = true for preview mode")
         
         // アルバム/アーティストの場合、最初のピックアップ楽曲を再生
         if (item.type == .album || item.type == .artist), 
@@ -503,7 +495,7 @@ class MusicPlayerService: NSObject, ObservableObject {
         // トラックの場合の処理
         guard item.type == .track else {
             print("[Preview Debug] No preview available for item type: \(item.type)")
-            stopPreview()
+            exitPreviewMode()
             return
         }
         
@@ -587,47 +579,55 @@ class MusicPlayerService: NSObject, ObservableObject {
                     await self.playPreview(song)
                 } else {
                     print("[Preview Debug] No song found for Apple Music ID: \(appleMusicID)")
-                    stopPreview()
+                    exitPreviewMode()
                 }
             } catch {
                 print("[Preview Error] Error loading song for preview: \(error)")
-                stopPreview()
+                exitPreviewMode()
             }
         } else {
             print("[Preview Debug] No Apple Music ID available for item: \(item.name)")
-            stopPreview()
+            exitPreviewMode()
         }
     }
     
-    /// 現在のプレビューを再開
-    private func restartCurrentPreview() {
-        guard currentPreviewURL != nil else {
-            stopPreview()
-            return
-        }
-        
-        print("[Preview Debug] Restarting preview")
-        
-        Task {
-            await previewPlayer?.seek(to: .zero)
-            previewPlayer?.play()
-        }
-        previewTimeRemaining = 30
-        
-        debugMessage = "Debug: プレビューを再開"
-    }
     
-    /// プレビュー自動モードに入る
-    func enterPreviewMode() {
-        shouldLoopPreview = true
-        print("[Preview Debug] Entered preview auto mode")
-    }
-    
-    /// プレビュー自動モードを終了
+    /// プレビューモードを完全終了
     func exitPreviewMode() {
-        shouldLoopPreview = false
-        stopPreview()
-        print("[Preview Debug] Exited preview auto mode")
+        print("[Preview Debug] exitPreviewMode() called - full cleanup")
+        
+        if let player = previewPlayer {
+            player.pause()
+            // 自分で作成したプレイヤーのみオブザーバーを削除
+            if !isUsingCachedPlayer {
+                player.removeObserver(self, forKeyPath: "status")
+                player.removeObserver(self, forKeyPath: "error")
+                player.removeObserver(self, forKeyPath: "rate")
+                // 自分で作成したプレイヤーのみnilにする
+                previewPlayer = nil
+            } else {
+                // キャッシュプレイヤーの場合は参照のみ解除、プレイヤー自体は保持
+                previewPlayer = nil
+                print("[Preview Debug] Cache player preserved, only reference cleared")
+            }
+        }
+        
+        // タイマーを確実に停止
+        if let timer = previewTimer {
+            print("[Preview Debug] Invalidating existing timer")
+            timer.invalidate()
+        }
+        previewTimer = nil
+        
+        // プレビューモードも完全終了
+        isPreviewMode = false
+        previewTimeRemaining = 30
+        currentPreviewItem = nil
+        currentPreviewURL = nil
+        isUsingCachedPlayer = false
+        playbackStatus = "Stopped"
+        debugMessage = "Debug: プレビュー停止"
+        print("[Preview Debug] Preview mode exited - complete cleanup")
     }
     
     /// ListenNowリストの更新（新しいキューが生成された時）
