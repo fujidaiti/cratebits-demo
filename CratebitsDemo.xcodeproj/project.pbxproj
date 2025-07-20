@@ -24,6 +24,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		055DD2922E2C9A2A00CAF702 /* CratebitsDemo.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = CratebitsDemo.xctestplan; sourceTree = "<group>"; };
+		056BE49E2E2C9A57000D9C33 /* CratebitsDemoUITests.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = CratebitsDemoUITests.xctestplan; sourceTree = "<group>"; };
 		057D84782E27DDF0002A6CDF /* CratebitsDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CratebitsDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		057D84862E27DDF1002A6CDF /* CratebitsDemoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CratebitsDemoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		057D84902E27DDF1002A6CDF /* CratebitsDemoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CratebitsDemoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -75,6 +77,8 @@
 		057D846F2E27DDF0002A6CDF = {
 			isa = PBXGroup;
 			children = (
+				056BE49E2E2C9A57000D9C33 /* CratebitsDemoUITests.xctestplan */,
+				055DD2922E2C9A2A00CAF702 /* CratebitsDemo.xctestplan */,
 				057D847A2E27DDF0002A6CDF /* CratebitsDemo */,
 				057D84892E27DDF1002A6CDF /* CratebitsDemoTests */,
 				057D84932E27DDF1002A6CDF /* CratebitsDemoUITests */,

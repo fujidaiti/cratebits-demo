@@ -1,0 +1,25 @@
+{
+  "configurations" : [
+    {
+      "id" : "84D2D281-FAB4-4961-99BF-3E09DA04111A",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:CratebitsDemo.xcodeproj",
+        "identifier" : "057D848F2E27DDF1002A6CDF",
+        "name" : "CratebitsDemoUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

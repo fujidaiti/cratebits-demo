@@ -10,6 +10,7 @@ This is an iOS/macOS project using Xcode. Common development commands:
 - Run: Use Cmd+R in Xcode to run the app
 - Test: Use Cmd+U in Xcode to run tests
 - Clean: Use Cmd+Shift+K in Xcode to clean build folder
+- Swift Unit Tests: `xcodebuild test -project CratebitsDemo.xcodeproj -scheme CratebitsDemoTests -destination 'platform=macOS,arch=arm64' -only-testing:CratebitsDemoTests`
 
 ## Project Structure
 

@@ -49,7 +49,7 @@ class PreviewCacheManager: NSObject, ObservableObject {
     
     // MARK: - Public Methods
     
-    /// 効率的な隣接ページキャッシュ（現在+次ページのみ）
+    /// 効率的な隣接ページキャッシュ（現在+次ページ+予測キャッシュ）
     /// - Parameters:
     ///   - items: 全アイテムリスト
     ///   - currentIndex: 現在のインデックス
@@ -61,12 +61,18 @@ class PreviewCacheManager: NSObject, ObservableObject {
             return 
         }
         
-        print("[Cache Info] 🎯 Smart cache strategy: page \(currentIndex) + \(currentIndex + 1) (total items: \(items.count))")
+        print("[Cache Info] 🎯 Smart cache strategy: page \(currentIndex) + \(currentIndex + 1) + predictions (total items: \(items.count))")
         
         // 現在のページをフルキャッシュ
         let currentItem = items[currentIndex]
         print("[Cache Debug] Preloading current page item: \(currentItem.name) (type: \(currentItem.type))")
         preloadItemWithStrategy(currentItem, isCurrentPage: true)
+        
+        // 現在表示中のページにカルーセルがある場合、隣接楽曲もキャッシュ
+        if let pickedTracks = currentItem.pickedTracks, pickedTracks.count > 1 {
+            print("[Cache Debug] Current page has carousel, caching adjacent tracks")
+            cacheCarouselAdjacent(pickedTracks, currentIndex: 0) // 最初の楽曲を中心に隣接キャッシュ
+        }
         
         // 次のページをプリロードキャッシュ
         if currentIndex + 1 < items.count {
@@ -76,6 +82,9 @@ class PreviewCacheManager: NSObject, ObservableObject {
         } else {
             print("[Cache Debug] No next page to preload (at end of queue)")
         }
+        
+        // 次ページ予測キャッシュを実行
+        preloadNextPagePrediction(for: items, currentIndex: currentIndex)
         
         // 前ページと離れたページのキャッシュを削除
         print("[Cache Debug] Starting cleanup of distant cache")
@@ -160,6 +169,81 @@ class PreviewCacheManager: NSObject, ObservableObject {
         for index in startIndex...endIndex {
             preloadPreview(for: tracks[index])
         }
+    }
+    
+    /// カルーセル隣接楽曲キャッシュ（現在+左右隣接のみ）
+    /// - Parameters:
+    ///   - tracks: カルーセルの楽曲リスト
+    ///   - currentIndex: 現在のインデックス
+    func cacheCarouselAdjacent(_ tracks: [ListenLaterItem], currentIndex: Int) {
+        guard currentIndex >= 0 && currentIndex < tracks.count else {
+            print("[Cache Debug] Invalid carousel index: \(currentIndex)")
+            return
+        }
+        
+        print("[Cache Info] 🎠 CAROUSEL cache: index \(currentIndex) + adjacent tracks")
+        
+        // 現在の楽曲
+        let currentTrack = tracks[currentIndex]
+        print("[Cache Debug] Caching current carousel track: \(currentTrack.name)")
+        preloadPreview(for: currentTrack)
+        
+        // 左隣の楽曲
+        if currentIndex > 0 {
+            let leftTrack = tracks[currentIndex - 1]
+            print("[Cache Debug] Caching left adjacent track: \(leftTrack.name)")
+            preloadPreview(for: leftTrack)
+        }
+        
+        // 右隣の楽曲
+        if currentIndex + 1 < tracks.count {
+            let rightTrack = tracks[currentIndex + 1]
+            print("[Cache Debug] Caching right adjacent track: \(rightTrack.name)")
+            preloadPreview(for: rightTrack)
+        }
+        
+        print("[Cache Info] ✅ CAROUSEL cache complete: cached \(min(3, tracks.count)) tracks around index \(currentIndex)")
+    }
+    
+    /// 次ページ予測キャッシュ（ページタイプ別に最適な楽曲を予測）
+    /// - Parameters:
+    ///   - items: 全アイテムリスト
+    ///   - currentIndex: 現在のインデックス
+    func preloadNextPagePrediction(for items: [ListenLaterItem], currentIndex: Int) {
+        guard currentIndex >= 0 && currentIndex < items.count - 1 else {
+            print("[Cache Debug] No next page to predict (at end of queue)")
+            return
+        }
+        
+        let nextItem = items[currentIndex + 1]
+        print("[Cache Info] 🔮 PREDICTION cache: predicting next page (\(nextItem.name))")
+        
+        switch nextItem.type {
+        case .track:
+            // 次ページが楽曲の場合、その楽曲をキャッシュ
+            print("[Cache Debug] Predicting next track: \(nextItem.name)")
+            preloadPreview(for: nextItem)
+            
+        case .album, .artist:
+            // 次ページがアルバム/アーティストの場合、最初のピックアップ楽曲をキャッシュ
+            guard let pickedTracks = nextItem.pickedTracks, !pickedTracks.isEmpty else {
+                print("[Cache Debug] No picked tracks to predict for \(nextItem.type.displayName): \(nextItem.name)")
+                return
+            }
+            
+            let firstTrack = pickedTracks[0]
+            print("[Cache Debug] Predicting first picked track for \(nextItem.type.displayName): \(firstTrack.name)")
+            preloadPreview(for: firstTrack)
+            
+            // アルバム/アーティストの場合、2曲目も予測キャッシュ
+            if pickedTracks.count > 1 {
+                let secondTrack = pickedTracks[1]
+                print("[Cache Debug] Predicting second picked track: \(secondTrack.name)")
+                preloadPreview(for: secondTrack)
+            }
+        }
+        
+        print("[Cache Info] ✅ PREDICTION cache complete for next page")
     }
     
     /// 全キャッシュをクリア
@@ -398,9 +482,9 @@ class PreviewCacheManager: NSObject, ObservableObject {
         print("[Cache Debug] preloadItemWithStrategy completed for: \(item.name)")
     }
     
-    /// 離れたページのキャッシュを削除（現在+次ページ以外）
+    /// 離れたページのキャッシュを削除（現在+次ページ+予測キャッシュ以外）
     private func cleanupDistantCache(for items: [ListenLaterItem], currentIndex: Int) {
-        // 現在ページと次ページの有効Apple Music IDを収集
+        // 現在ページ、次ページ、予測キャッシュの有効Apple Music IDを収集
         var validAppleMusicIds = Set<String>()
         
         // 現在ページ
@@ -410,10 +494,11 @@ class PreviewCacheManager: NSObject, ObservableObject {
                 validAppleMusicIds.insert(appleMusicID)
             }
             
-            // アルバム/アーティストの場合、ピックアップ楽曲も含める
+            // アルバム/アーティストの場合、ピックアップ楽曲も含める（隣接キャッシュ含む）
             if let pickedTracks = currentItem.pickedTracks {
-                let currentPageTracks = Array(pickedTracks.prefix(3))
-                validAppleMusicIds.formUnion(currentPageTracks.compactMap { $0.appleMusicID })
+                // 最大3楽曲（現在+左右隣接）
+                let carouselTracks = Array(pickedTracks.prefix(3))
+                validAppleMusicIds.formUnion(carouselTracks.compactMap { $0.appleMusicID })
             }
         }
         
@@ -424,7 +509,7 @@ class PreviewCacheManager: NSObject, ObservableObject {
                 validAppleMusicIds.insert(appleMusicID)
             }
             
-            // アルバム/アーティストの場合、ピックアップ楽曲も含める
+            // アルバム/アーティストの場合、ピックアップ楽曲も含める（予測キャッシュ含む）
             if let pickedTracks = nextItem.pickedTracks {
                 let nextPageTracks = Array(pickedTracks.prefix(2))
                 validAppleMusicIds.formUnion(nextPageTracks.compactMap { $0.appleMusicID })

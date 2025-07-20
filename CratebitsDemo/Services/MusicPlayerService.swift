@@ -638,6 +638,17 @@ class MusicPlayerService: NSObject, ObservableObject {
         cacheManager.cacheCarouselTracks(tracks, around: currentIndex)
     }
     
+    /// カルーセル隣接楽曲キャッシュ（現在+左右隣接のみ）
+    func cacheCarouselAdjacent(_ tracks: [ListenLaterItem], currentIndex: Int) {
+        cacheManager.cacheCarouselAdjacent(tracks, currentIndex: currentIndex)
+    }
+    
+    /// アクティブなページのカルーセル隣接キャッシュ（ListenNowViewから呼び出し用）
+    func cacheActiveCarouselAdjacent(_ tracks: [ListenLaterItem], currentIndex: Int) {
+        print("[Cache Info] 🎠 ACTIVE carousel cache requested for index: \(currentIndex)")
+        cacheCarouselAdjacent(tracks, currentIndex: currentIndex)
+    }
+    
     /// ピックアップ楽曲を一括キャッシュ
     func cachePickedTracks(_ pickedTracks: [ListenLaterItem]) {
         cacheManager.preloadPickedTracks(pickedTracks)

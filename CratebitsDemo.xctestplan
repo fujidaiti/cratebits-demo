@@ -1,0 +1,37 @@
+{
+  "configurations" : [
+    {
+      "id" : "502B718A-4B90-402C-B94D-A29B2E0D65DD",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:CratebitsDemo.xcodeproj",
+      "identifier" : "057D84772E27DDF0002A6CDF",
+      "name" : "CratebitsDemo"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:CratebitsDemo.xcodeproj",
+        "identifier" : "057D84852E27DDF1002A6CDF",
+        "name" : "CratebitsDemoTests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:CratebitsDemo.xcodeproj",
+        "identifier" : "057D848F2E27DDF1002A6CDF",
+        "name" : "CratebitsDemoUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

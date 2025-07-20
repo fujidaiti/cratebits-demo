@@ -331,6 +331,7 @@ struct ListenNowView: View {
             toastManager.show("🔄 End of queue. Tap 'New Queue' to generate more!", type: .info)
         }
     }
+    
 }
 
 
@@ -400,7 +401,8 @@ struct ListenNowCardView: View {
                                     await musicPlayer.playPreviewInstantly(for: track)
                                 }
                             }
-                        }
+                        },
+                        onCarouselIndexChange: nil
                     )
                     .frame(height: 120)
                     // カルーセル自体には水平パディングを適用しない
@@ -544,6 +546,7 @@ struct TrackCarouselView: View {
     let tracks: [ListenLaterItem]
     @Binding var currentIndex: Int
     let onTrackPreview: (ListenLaterItem) -> Void
+    let onCarouselIndexChange: ((Int) -> Void)? // カルーセルインデックス変更時のコールバック（オプショナル）
     
     @EnvironmentObject var musicPlayer: MusicPlayerService
     
@@ -583,13 +586,15 @@ struct TrackCarouselView: View {
                         proxy.scrollTo(newIndex, anchor: .center)
                     }
                     
-                    // カルーセル楽曲のキャッシュは上位レベルで実行済みのため削除
-                    
                     // プレビューモード中は自動でプレビューを切り替え
                     if musicPlayer.isPreviewMode {
                         print("[Carousel Debug] Auto-switching preview to track: \(tracks[newIndex].name)")
                         onTrackPreview(tracks[newIndex])
                     }
+                    
+                    // カルーセルインデックス変更を上位に通知
+                    print("[Carousel Debug] Notifying parent of carousel index change: \(newIndex)")
+                    onCarouselIndexChange?(newIndex)
                 }
                 .onAppear {
                     // 初期表示時のキャッシュとプレビュー
@@ -619,7 +624,8 @@ struct TrackCarouselView: View {
     
     /// 初期状態のセットアップ
     private func setupInitialState() {
-        // キャッシュは上位レベルの効率的戦略で実行されるため削除
+        // 初期キャッシュは上位レベル（ListenNowView）で実行されるため、ここでは実行しない
+        print("[Carousel Debug] Initial state setup - cache will be handled by parent view")
         
         // プレビューモード中の場合、現在のトラックのプレビューを開始
         if musicPlayer.isPreviewMode && currentIndex < tracks.count {
