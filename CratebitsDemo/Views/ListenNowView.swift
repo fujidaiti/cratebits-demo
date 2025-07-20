@@ -463,143 +463,157 @@ struct ListenNowCardView: View {
     @State private var currentTrackIndex = 0
     
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 20)
-            
-            // アイテム情報表示
-            VStack(spacing: 16) {
-                // タイプアイコン
-                Image(systemName: iconName)
-                    .font(.system(size: 60))
-                    .foregroundColor(iconColor)
-                
-                // タイトル
-                Text(item.name)
-                    .font(.title)
-                    .fontWeight(.bold)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                
-                // アーティスト名
-                Text(item.artist)
-                    .font(.title2)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1)
-                
-                // タイプ表示
-                Text(item.type.displayName)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .background(Color.secondary.opacity(0.2))
-                    .cornerRadius(8)
-            }
-            .padding(.horizontal, 40)
-            
-            Spacer(minLength: 20)
-            
-            // ピックアップ楽曲カルーセル（アルバム/アーティストの場合のみ）
-            if let pickedTracks = item.pickedTracks, !pickedTracks.isEmpty {
-                VStack(spacing: 12) {
-                    Text("Picked Tracks")
-                        .font(.headline)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 20)  // タイトルのみにパディング
+        GeometryReader { geometry in
+            ZStack {
+                // メインコンテンツ（従来の下部ボタンを除いた部分）
+                VStack(spacing: 0) {
+                    Spacer(minLength: 30)
                     
-                    TrackCarouselView(
-                        tracks: pickedTracks,
-                        currentIndex: $currentTrackIndex,
-                        onTrackPreview: { track in
-                            // プレビューモード中は自動的にピックアップ楽曲のプレビューを再生
-                            if musicPlayer.isPreviewMode {
-                                Task {
-                                    await musicPlayer.playPreviewInstantly(for: track)
+                    // アイテム情報表示
+                    VStack(spacing: 20) {
+                        // タイプアイコン
+                        Image(systemName: iconName)
+                            .font(.system(size: 80))
+                            .foregroundColor(iconColor)
+                        
+                        // タイトル
+                        Text(item.name)
+                            .font(.largeTitle)
+                            .fontWeight(.bold)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                        
+                        // アーティスト名
+                        Text(item.artist)
+                            .font(.title)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                        
+                        // タイプ表示
+                        Text(item.type.displayName)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
+                            .background(Color.secondary.opacity(0.2))
+                            .cornerRadius(10)
+                    }
+                    .padding(.horizontal, 60)
+                    
+                    Spacer(minLength: 30)
+                    
+                    // ピックアップ楽曲カルーセル（アルバム/アーティストの場合のみ）
+                    if let pickedTracks = item.pickedTracks, !pickedTracks.isEmpty {
+                        TrackCarouselView(
+                            tracks: pickedTracks,
+                            currentIndex: $currentTrackIndex,
+                            onTrackPreview: { track in
+                                // プレビューモード中は自動的にピックアップ楽曲のプレビューを再生
+                                if musicPlayer.isPreviewMode {
+                                    Task {
+                                        await musicPlayer.playPreviewInstantly(for: track)
+                                    }
                                 }
+                            },
+                            onCarouselIndexChange: { trackIndex in
+                                // カルーセル内移動時のキャッシュ処理（バックグラウンドで実行）
+                                musicPlayer.handleCarouselFocusChange(to: pageIndex, trackIndex: trackIndex)
+                                // 親ビューにトラックインデックス変更を通知
+                                onTrackIndexChange?(trackIndex)
                             }
-                        },
-                        onCarouselIndexChange: { trackIndex in
-                            // カルーセル内移動時のキャッシュ処理（バックグラウンドで実行）
-                            musicPlayer.handleCarouselFocusChange(to: pageIndex, trackIndex: trackIndex)
-                            // 親ビューにトラックインデックス変更を通知
-                            onTrackIndexChange?(trackIndex)
-                        }
+                        )
+                        .frame(height: 180)
+                        .padding(.bottom, 40)
+                    }
+                    
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    LinearGradient(
+                        colors: [Color.clear, iconColor.opacity(0.1)],
+                        startPoint: .top,
+                        endPoint: .bottom
                     )
-                    .frame(height: 120)
-                }
-                .padding(.bottom, 20)
-            }
-            
-            Spacer(minLength: 20)
-            
-            // 再生ボタン
-            HStack(spacing: 20) {
-                Button(action: { 
-                    // ピックアップトラックがある場合は現在のトラックインデックスを渡す
-                    if item.pickedTracks != nil {
-                        onPreview(currentTrackIndex)
-                    } else {
-                        onPreview(nil)
-                    }
-                }) {
-                    HStack {
-                        Image(systemName: "play.circle")
-                        Text("Preview")
-                    }
-                    .font(.title2)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .background(Color.orange)
-                    .cornerRadius(25)
-                }
+                )
                 
-                Button(action: onPlay) {
-                    HStack {
-                        Image(systemName: "play.fill")
-                        Text("Play")
-                    }
-                    .font(.title2)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .background(Color.blue)
-                    .cornerRadius(25)
-                }
-            }
-            .padding(.bottom, 20)
-            
-            // プレビュー状態表示
-            PreviewStatusView()
-                .padding(.bottom, 10)
-            
-            // 評価ボタン
-            HStack(spacing: 40) {
-                ForEach(EvaluationType.allCases, id: \.self) { evaluation in
-                    Button(action: {
-                        onEvaluate(evaluation)
-                    }) {
-                        VStack {
-                            Image(systemName: evaluation.systemImage)
-                                .font(.title)
-                            Text(evaluation.displayName)
-                                .font(.caption)
+                // TikTok風右側縦並びボタン列
+                VStack(spacing: 24) {
+                    // 評価ボタン
+                    ForEach(EvaluationType.allCases, id: \.self) { evaluation in
+                        Button(action: {
+                            onEvaluate(evaluation)
+                        }) {
+                            VStack(spacing: 6) {
+                                Image(systemName: evaluation.systemImage)
+                                    .font(.title2)
+                                    .fontWeight(.semibold)
+                                Text(evaluation.displayName)
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundColor(evaluation.color)
+                            .frame(width: 60, height: 60)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(12)
                         }
-                        .foregroundColor(evaluation.color)
+                    }
+                    
+                    // 区切り線
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.4))
+                        .frame(width: 30, height: 1)
+                    
+                    // プレビューボタン
+                    Button(action: { 
+                        if musicPlayer.isPreviewMode {
+                            // プレビューモード中の場合は終了
+                            musicPlayer.exitPreviewMode()
+                        } else {
+                            // 非プレビューモードの場合は開始
+                            if item.pickedTracks != nil {
+                                onPreview(currentTrackIndex)
+                            } else {
+                                onPreview(nil)
+                            }
+                        }
+                    }) {
+                        VStack(spacing: 6) {
+                            Image(systemName: musicPlayer.isPreviewMode ? "pause.circle.fill" : "play.circle.fill")
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                            Text("Preview")
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                        }
+                        .foregroundColor(.orange)
+                        .frame(width: 60, height: 60)
+                        .background(Color.white.opacity(0.1))
+                        .cornerRadius(12)
+                    }
+                    
+                    // 再生ボタン
+                    Button(action: onPlay) {
+                        VStack(spacing: 6) {
+                            Image(systemName: "play.fill")
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                            Text("Play")
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                        }
+                        .foregroundColor(.blue)
+                        .frame(width: 60, height: 60)
+                        .background(Color.white.opacity(0.1))
+                        .cornerRadius(12)
                     }
                 }
+                .position(x: geometry.size.width - 45, y: geometry.size.height / 2)
+                .zIndex(1)
             }
-            .padding(.bottom, 60) // タブバーのスペースを確保
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            LinearGradient(
-                colors: [Color.clear, iconColor.opacity(0.1)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
         .onAppear {
             // 初期トラックインデックスでカルーセル状態を初期化
             currentTrackIndex = initialTrackIndex
@@ -624,54 +638,6 @@ struct ListenNowCardView: View {
     }
 }
 
-/// プレビュー状態表示ビュー
-struct PreviewStatusView: View {
-    @EnvironmentObject var musicPlayer: MusicPlayerService
-    @EnvironmentObject var toastManager: ToastManager
-    
-    var body: some View {
-        if musicPlayer.isPreviewMode {
-            VStack(spacing: 8) {
-                HStack {
-                    Image(systemName: "timer")
-                        .foregroundColor(.orange)
-                    Text("Preview Mode")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundColor(.orange)
-                }
-                
-                Text("\(musicPlayer.previewTimeRemaining)s remaining")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                HStack {
-                    Button("Stop Preview") {
-                        musicPlayer.stopPreview()
-                        toastManager.show("⏹️ Preview stopped", type: .info)
-                    }
-                    .font(.caption)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .background(Color.orange.opacity(0.2))
-                    .foregroundColor(.orange)
-                    .cornerRadius(8)
-                    
-                    Button("Exit Preview Mode") {
-                        musicPlayer.exitPreviewMode()
-                        toastManager.show("🚪 Exited preview mode", type: .info)
-                    }
-                    .font(.caption)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .background(Color.red.opacity(0.2))
-                    .foregroundColor(.red)
-                    .cornerRadius(8)
-                }
-            }
-        }
-    }
-}
 
 /// 楽曲の横スクロールカルーセルビュー
 struct TrackCarouselView: View {
@@ -775,18 +741,18 @@ struct TrackCardView: View {
         VStack {
             // 楽曲タイトルのみ表示
             Text(track.name)
-                .font(.body)
+                .font(.title3)
                 .fontWeight(.medium)
-                .lineLimit(3)
+                .lineLimit(4)
                 .multilineTextAlignment(.center)
                 .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, minHeight: 60)
+                .frame(maxWidth: .infinity, minHeight: 100)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 20)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 30)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.gray.opacity(0.05))
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.gray.opacity(0.08))
         )
     }
 }
