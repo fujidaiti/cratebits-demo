@@ -20,6 +20,7 @@ class MusicPlayerService: NSObject, ObservableObject {
     @Published var previewTimeRemaining: Int = 30
     @Published var debugMessage: String = ""
     @Published var currentPreviewItem: ListenLaterItem?
+    @Published var isCacheInitializing: Bool = false
     
     private let player = ApplicationMusicPlayer.shared
     private var previewPlayer: AVPlayer?
@@ -520,14 +521,14 @@ class MusicPlayerService: NSObject, ObservableObject {
             return
         }
         
-        print("[Cache Debug] 📊 All cached keys: \(Array(cacheController.cachedKeys).sorted())")
+        print("[Cache Debug] 📊 All cached keys: \(Array(await cacheController.cachedKeys).sorted())")
         
         // 新しいキャッシュシステムでキャッシュを確認
-        let isCached = cacheController.isCached(cacheKey)
+        let isCached = await cacheController.isCached(cacheKey)
         print("[Cache Debug] 📋 isCached('\(cacheKey)') = \(isCached)")
         
         if isCached {
-            let cachedItem = cacheController.getCachedItem(for: cacheKey)
+            let cachedItem = await cacheController.getCachedItem(for: cacheKey)
             print("[Cache Debug] 📦 getCachedItem result: \(cachedItem != nil ? "Found" : "Not Found")")
             
             if let cachedItem = cachedItem {
@@ -537,7 +538,7 @@ class MusicPlayerService: NSObject, ObservableObject {
                     print("[Cache Info] 🎯 CACHE HIT: Using cached player for \(item.name)")
                     
                     // AVPlayerStorageの場合はプレイヤーを直接取得
-                    if let cachedPlayer = getCachedPlayer(for: cacheKey) {
+                    if let cachedPlayer = await getCachedPlayer(for: cacheKey) {
                         print("[Cache Debug] 🎬 Got cached player successfully")
                         
                         // キャッシュプレイヤーを即座に利用
@@ -630,39 +631,60 @@ class MusicPlayerService: NSObject, ObservableObject {
     }
     
     /// ListenNowリストの更新（新しいキューが生成された時）
-    func updateListenNowItems(_ items: [ListenLaterItem]) async {
-        print("[Cache Debug] 🔄 UPDATE LIST: Converting \(items.count) ListenLaterItems to ListenNowItems")
-        
-        // ListenLaterItemをListenNowItemに変換
-        let listenNowItems = items.compactMap { ListenNowItem.from($0) }
-        print("[Cache Debug] 🔄 UPDATE LIST: Successfully converted to \(listenNowItems.count) ListenNowItems")
-        
-        for (index, item) in listenNowItems.enumerated() {
-            print("[Cache Debug] 🔄 Item[\(index)]: \(item.name) - \(item.trackCount) tracks")
-            for trackIndex in 0..<min(item.trackCount, 3) {
-                let track = item.getPickedTrack(at: trackIndex)
-                print("[Cache Debug] 🔄   Track[\(trackIndex)]: \(track.name) - ID: \(track.appleMusicID)")
-            }
+    func updateListenNowItems(_ items: [ListenLaterItem]) {
+        // Set cache initialization state on main actor
+        Task { @MainActor in
+            self.isCacheInitializing = true
         }
         
-        await cacheController.updateListenNowItems(listenNowItems)
-        print("[Cache Debug] 🔄 UPDATE LIST: Cache controller notified")
+        // Use Task.detached to ensure heavy work runs on background thread
+        Task.detached(priority: .background) { [weak self] in
+            guard let self = self else { return }
+            
+            print("[Cache Debug] 🔄 UPDATE LIST: Converting \(items.count) ListenLaterItems to ListenNowItems")
+            
+            // ListenLaterItemをListenNowItemに変換
+            let listenNowItems = items.compactMap { ListenNowItem.from($0) }
+            print("[Cache Debug] 🔄 UPDATE LIST: Successfully converted to \(listenNowItems.count) ListenNowItems")
+            
+            for (index, item) in listenNowItems.enumerated() {
+                print("[Cache Debug] 🔄 Item[\(index)]: \(item.name) - \(item.trackCount) tracks")
+                for trackIndex in 0..<min(item.trackCount, 3) {
+                    let track = item.getPickedTrack(at: trackIndex)
+                    print("[Cache Debug] 🔄   Track[\(trackIndex)]: \(track.name) - ID: \(track.appleMusicID)")
+                }
+            }
+            
+            await self.cacheController.updateListenNowItems(listenNowItems)
+            print("[Cache Debug] 🔄 UPDATE LIST: Cache controller notified")
+            
+            // Update cache initialization state on main actor
+            Task { @MainActor in
+                self.isCacheInitializing = false
+            }
+        }
     }
     
     /// フォーカス変更時のキャッシュ処理
-    func handleFocusChange(to pageIndex: Int, trackIndex: Int = 0) async {
-        let cursor = ListenNowCursor(pageIndex: pageIndex, trackIndex: trackIndex)
-        print("[Cache Debug] 🎯 FOCUS CHANGE: Moving to page \(pageIndex), track \(trackIndex)")
-        await cacheController.handleFocusChange(to: cursor)
-        print("[Cache Debug] 🎯 FOCUS CHANGE: Cache controller processed focus change")
+    func handleFocusChange(to pageIndex: Int, trackIndex: Int = 0) {
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
+            let cursor = ListenNowCursor(pageIndex: pageIndex, trackIndex: trackIndex)
+            print("[Cache Debug] 🎯 FOCUS CHANGE: Moving to page \(pageIndex), track \(trackIndex)")
+            await self.cacheController.handleFocusChange(to: cursor)
+            print("[Cache Debug] 🎯 FOCUS CHANGE: Cache controller processed focus change")
+        }
     }
     
     /// カルーセル内移動時のキャッシュ処理
-    func handleCarouselFocusChange(to pageIndex: Int, trackIndex: Int) async {
-        let cursor = ListenNowCursor(pageIndex: pageIndex, trackIndex: trackIndex)
-        print("[Cache Debug] 🎠 CAROUSEL CHANGE: Moving to page \(pageIndex), track \(trackIndex)")
-        await cacheController.handleCarouselFocusChange(to: cursor)
-        print("[Cache Debug] 🎠 CAROUSEL CHANGE: Cache controller processed carousel change")
+    func handleCarouselFocusChange(to pageIndex: Int, trackIndex: Int) {
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
+            let cursor = ListenNowCursor(pageIndex: pageIndex, trackIndex: trackIndex)
+            print("[Cache Debug] 🎠 CAROUSEL CHANGE: Moving to page \(pageIndex), track \(trackIndex)")
+            await self.cacheController.handleCarouselFocusChange(to: cursor)
+            print("[Cache Debug] 🎠 CAROUSEL CHANGE: Cache controller processed carousel change")
+        }
     }
     
     
@@ -674,19 +696,21 @@ class MusicPlayerService: NSObject, ObservableObject {
     
     /// キャッシュ状態をデバッグ出力
     func debugCacheStatus() {
-        let state = cacheController.dumpState()
-        print("[Cache Debug] Cache Controller State: \(state)")
+        Task {
+            let state = await cacheController.dumpState()
+            print("[Cache Debug] Cache Controller State: \(state)")
+        }
     }
     
     /// キャッシュからプレイヤーを取得（内部用）
-    private func getCachedPlayer(for appleMusicID: String) -> AVPlayer? {
+    private func getCachedPlayer(for appleMusicID: String) async -> AVPlayer? {
         // AVPlayerCacheStorageの場合は直接プレイヤーを取得
         if let avStorage = cacheController.storage as? AVPlayerCacheStorage {
             return avStorage.getPlayer(for: appleMusicID)
         }
         
         // その他のストレージの場合は新しいプレイヤーを作成
-        if let cachedItem = cacheController.getCachedItem(for: appleMusicID) {
+        if let cachedItem = await cacheController.getCachedItem(for: appleMusicID) {
             return AVPlayer(url: cachedItem.item.previewURL)
         }
         

@@ -22,22 +22,22 @@ protocol CacheStorage {
     /// アイテムを取得
     /// - Parameter appleMusicID: 取得キー
     /// - Returns: 保存されたアイテム（なければnil）
-    func retrieve(for appleMusicID: String) -> StoredCacheItem?
+    func retrieve(for appleMusicID: String) async -> StoredCacheItem?
     
     /// アイテムを削除
     /// - Parameter appleMusicID: 削除キー
-    func remove(for appleMusicID: String)
+    func remove(for appleMusicID: String) async
     
     /// アイテムが存在するかチェック
     /// - Parameter appleMusicID: チェックキー
     /// - Returns: 存在するかどうか
-    func contains(_ appleMusicID: String) -> Bool
+    func contains(_ appleMusicID: String) async -> Bool
     
     /// 現在保存されているすべてのキー
-    var storedKeys: Set<String> { get }
+    var storedKeys: Set<String> { get async }
     
     /// すべてのアイテムを削除
-    func clearAll()
+    func clearAll() async
 }
 
 // MARK: - Stored Cache Item

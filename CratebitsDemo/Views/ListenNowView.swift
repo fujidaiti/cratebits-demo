@@ -55,13 +55,11 @@ struct ListenNowView: View {
         #endif
         .onAppear {
             print("[ListenNow Debug] 🚀 View appeared with queue count: \(storage.listenNowQueue.count)")
-            // 既存のキューがある場合はキャッシュシステムを初期化
+            // 既存のキューがある場合はキャッシュシステムを初期化（バックグラウンドで実行）
             if !storage.listenNowQueue.isEmpty {
                 print("[ListenNow Debug] 🔄 Initializing cache with existing queue")
-                Task {
-                    await musicPlayer.updateListenNowItems(storage.listenNowQueue)
-                    print("[ListenNow Debug] 🔄 Cache initialization completed")
-                }
+                musicPlayer.updateListenNowItems(storage.listenNowQueue)
+                print("[ListenNow Debug] 🔄 Cache initialization started in background")
             } else {
                 print("[ListenNow Debug] 📭 No existing queue found")
             }
@@ -108,12 +106,10 @@ struct ListenNowView: View {
                 print("[ListenNow Debug] 🆔 Apple Music ID: \(appleMusicID)")
             }
             
-            // 新しいキャッシュシステムでフォーカス変更を処理
-            Task {
-                print("[ListenNow Debug] 🎯 Calling handleFocusChange(to: \(newIndex))")
-                await musicPlayer.handleFocusChange(to: newIndex)
-                print("[ListenNow Debug] 🎯 handleFocusChange completed")
-            }
+            // 新しいキャッシュシステムでフォーカス変更を処理（バックグラウンドで実行）
+            print("[ListenNow Debug] 🎯 Calling handleFocusChange(to: \(newIndex))")
+            musicPlayer.handleFocusChange(to: newIndex)
+            print("[ListenNow Debug] 🎯 handleFocusChange started in background")
             
             // プレビューモード中は自動でプレビューを開始
             if musicPlayer.isPreviewMode {
@@ -219,10 +215,10 @@ struct ListenNowView: View {
                 toastManager.show("🎵 New queue generated!", type: .success)
             }
             
-            // 新しいキューを音楽プレイヤーのキャッシュシステムに通知
+            // 新しいキューを音楽プレイヤーのキャッシュシステムに通知（バックグラウンドで実行）
             print("[ListenNow Debug] 🔄 About to call updateListenNowItems with \(expandedTracks.count) items")
-            await musicPlayer.updateListenNowItems(expandedTracks)
-            print("[ListenNow Debug] 🔄 updateListenNowItems completed")
+            musicPlayer.updateListenNowItems(expandedTracks)
+            print("[ListenNow Debug] 🔄 updateListenNowItems started in background")
         }
     }
     
@@ -430,10 +426,8 @@ struct ListenNowCardView: View {
                             }
                         },
                         onCarouselIndexChange: { trackIndex in
-                            // カルーセル内移動時のキャッシュ処理
-                            Task {
-                                await musicPlayer.handleCarouselFocusChange(to: pageIndex, trackIndex: trackIndex)
-                            }
+                            // カルーセル内移動時のキャッシュ処理（バックグラウンドで実行）
+                            musicPlayer.handleCarouselFocusChange(to: pageIndex, trackIndex: trackIndex)
                         }
                     )
                     .frame(height: 120)
