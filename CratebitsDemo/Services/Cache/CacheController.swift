@@ -46,34 +46,6 @@ protocol CacheControllerProtocol {
     var currentCursor: ListenNowCursor { get }
 }
 
-// MARK: - Legacy Protocol Support
-
-/// 既存コードとの互換性のための拡張
-extension CacheControllerProtocol {
-    
-    /// 従来のListenLaterItem-based初期化（非推奨）
-    @available(*, deprecated, message: "Use updateListenNowItems(_:) instead")
-    func initializeCache(
-        items: [ListenLaterItem],
-        initialFocusIndex: Int
-    ) async {
-        let listenNowItems = items.compactMap { ListenNowItem.from($0) }
-        await updateListenNowItems(listenNowItems)
-        
-        let cursor = ListenNowCursor(pageIndex: initialFocusIndex, trackIndex: 0)
-        await handleFocusChange(to: cursor)
-    }
-    
-    /// 従来のindex-basedフォーカス変更（非推奨）
-    @available(*, deprecated, message: "Use handleFocusChange(to:) with ListenNowCursor instead")
-    func handleFocusChange(
-        items: [ListenLaterItem],
-        newFocusIndex: Int
-    ) async {
-        let cursor = ListenNowCursor(pageIndex: newFocusIndex, trackIndex: 0)
-        await handleFocusChange(to: cursor)
-    }
-}
 
 // MARK: - Cache Controller Implementation
 
@@ -85,7 +57,7 @@ class CacheController: CacheControllerProtocol, ObservableObject {
     
     private let strategy: CacheStrategy
     private let dataSource: CacheDataSource
-    private let storage: CacheStorage
+    let storage: CacheStorage // 外部からアクセス可能に
     
     // MARK: - State
     
@@ -259,29 +231,43 @@ class CacheController: CacheControllerProtocol, ObservableObject {
     }
     
     private func loadItem(appleMusicID: String) async {
+        print("[CacheController] 🔄 loadItem called for: \(appleMusicID)")
+        
         // Skip if already pending or cached
-        guard !pendingOperations.contains(appleMusicID) &&
-              !storage.contains(appleMusicID) else {
+        let isPending = pendingOperations.contains(appleMusicID)
+        let isCached = storage.contains(appleMusicID)
+        
+        print("[CacheController] 📊 loadItem status - isPending: \(isPending), isCached: \(isCached)")
+        
+        guard !isPending && !isCached else {
+            print("[CacheController] ⏭️ Skipping loadItem for \(appleMusicID) - already pending or cached")
             return
         }
         
+        print("[CacheController] 🚀 Starting download for: \(appleMusicID)")
         pendingOperations.insert(appleMusicID)
         emitEvent(.downloadStarted(appleMusicID: appleMusicID))
         
         defer {
             pendingOperations.remove(appleMusicID)
+            print("[CacheController] 🧹 Cleaned up pending operation for: \(appleMusicID)")
         }
         
         do {
+            print("[CacheController] 📡 Fetching preview for: \(appleMusicID)")
             guard let item = await dataSource.fetchPreview(for: appleMusicID) else {
+                print("[CacheController] ❌ No data received for: \(appleMusicID)")
                 emitEvent(.downloadFailed(appleMusicID: appleMusicID, error: "No data received"))
                 return
             }
             
+            print("[CacheController] 💾 Storing item for: \(appleMusicID) - title: \(item.title)")
             try await storage.store(item, for: appleMusicID)
+            print("[CacheController] ✅ Successfully stored: \(appleMusicID)")
             emitEvent(.downloadCompleted(appleMusicID: appleMusicID))
             
         } catch {
+            print("[CacheController] ❌ Storage error for \(appleMusicID): \(error)")
             emitEvent(.downloadFailed(appleMusicID: appleMusicID, error: error.localizedDescription))
         }
     }

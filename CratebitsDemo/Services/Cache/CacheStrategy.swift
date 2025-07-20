@@ -38,176 +38,8 @@ struct CacheStrategy {
         self.maxCacheSize = maxCacheSize
     }
     
-    /// フォーカス変更時のキャッシュ操作を計算（非推奨）
-    /// - Parameters:
-    ///   - items: 全ListenLaterアイテム
-    ///   - focusIndex: 現在のフォーカスインデックス
-    ///   - currentlyCached: 現在キャッシュ済みのAppleMusicIDセット
-    /// - Returns: 実行すべきキャッシュ操作のリスト
-    @available(*, deprecated, message: "Use calculateCacheOperations(for:cursor:currentlyCached:) instead")
-    func calculateCacheOperations(
-        for items: [ListenLaterItem],
-        focusIndex: Int,
-        currentlyCached: Set<String>
-    ) -> [CacheOperation] {
-        
-        guard focusIndex >= 0 && focusIndex < items.count else {
-            return []
-        }
-        
-        // 必要なAppleMusicIDを優先度付きで収集
-        let requiredIDs = gatherRequiredIDs(for: items, focusIndex: focusIndex)
-        
-        // 現在必要なIDのセット
-        let requiredIDSet = Set(requiredIDs.keys)
-        
-        var operations: [CacheOperation] = []
-        
-        // 1. 不要になったアイテムを削除
-        let toRemove = currentlyCached.subtracting(requiredIDSet)
-        operations += toRemove.map { .remove(appleMusicID: $0) }
-        
-        // 2. 新たにキャッシュが必要なアイテムを追加
-        let toAdd = requiredIDSet.subtracting(currentlyCached)
-        let sortedToAdd = toAdd.compactMap { id in
-            requiredIDs[id].map { (id, $0) }
-        }.sorted { $0.1 < $1.1 }
-        
-        // キャッシュサイズ制限を考慮
-        let remainingSlots = maxCacheSize - (currentlyCached.count - toRemove.count)
-        let addOperations = sortedToAdd.prefix(remainingSlots).map { 
-            CacheOperation.load(appleMusicID: $0.0, priority: $0.1) 
-        }
-        operations += addOperations
-        
-        return operations
-    }
     
-    /// 初期キャッシュ操作を計算（非推奨）
-    /// - Parameters:
-    ///   - items: 全ListenLaterアイテム
-    ///   - initialFocusIndex: 初期フォーカスインデックス
-    /// - Returns: 初期ロード用のキャッシュ操作リスト
-    @available(*, deprecated, message: "Use calculateInitialCacheOperations(for:initialCursor:) instead")
-    func calculateInitialCacheOperations(
-        for items: [ListenLaterItem],
-        initialFocusIndex: Int = 0
-    ) -> [CacheOperation] {
-        
-        guard initialFocusIndex >= 0 && initialFocusIndex < items.count else {
-            return []
-        }
-        
-        let requiredIDs = gatherRequiredIDs(for: items, focusIndex: initialFocusIndex)
-        
-        let sortedOperations = requiredIDs.sorted { $0.value < $1.value }
-            .prefix(maxCacheSize)
-            .map { CacheOperation.load(appleMusicID: $0.key, priority: $0.value) }
-        
-        return Array(sortedOperations)
-    }
     
-    // MARK: - Private Methods (Legacy)
-    
-    /// 必要なAppleMusicIDを優先度付きで収集（非推奨）
-    @available(*, deprecated, message: "Use gatherRequiredIDs(for:cursor:) instead")
-    private func gatherRequiredIDs(
-        for items: [ListenLaterItem],
-        focusIndex: Int
-    ) -> [String: CachePriority] {
-        
-        var requiredIDs: [String: CachePriority] = [:]
-        
-        let currentItem = items[focusIndex]
-        
-        // 1. 現在フォーカス中のアイテム（最高優先度）
-        addItemIDs(currentItem, to: &requiredIDs, priority: .immediate)
-        
-        // 2. 現在のページがカルーセルを持つ場合、隣接楽曲
-        if let pickedTracks = currentItem.pickedTracks, pickedTracks.count > 1 {
-            // 最初の楽曲が現在フォーカス中と仮定して、隣接楽曲を追加
-            for (index, track) in pickedTracks.enumerated() {
-                let priority: CachePriority = index == 0 ? .immediate : .adjacent
-                if let appleMusicID = track.appleMusicID {
-                    requiredIDs[appleMusicID] = priority
-                }
-            }
-        }
-        
-        // 3. 隣接ページ（予測的キャッシュ）
-        addAdjacentPageIDs(items: items, focusIndex: focusIndex, to: &requiredIDs)
-        
-        return requiredIDs
-    }
-    
-    /// アイテムのAppleMusicIDを辞書に追加（非推奨）
-    @available(*, deprecated, message: "Use with ListenNowItem instead")
-    private func addItemIDs(
-        _ item: ListenLaterItem,
-        to dict: inout [String: CachePriority],
-        priority: CachePriority
-    ) {
-        switch item.type {
-        case .track:
-            if let appleMusicID = item.appleMusicID {
-                dict[appleMusicID] = priority
-            }
-        case .album, .artist:
-            // アルバム/アーティストの場合はピックアップ楽曲
-            if let pickedTracks = item.pickedTracks {
-                for track in pickedTracks {
-                    if let appleMusicID = track.appleMusicID {
-                        dict[appleMusicID] = priority
-                    }
-                }
-            }
-        }
-    }
-    
-    /// 隣接ページのIDを追加（非推奨）
-    @available(*, deprecated, message: "Use with ListenNowItem instead")
-    private func addAdjacentPageIDs(
-        items: [ListenLaterItem],
-        focusIndex: Int,
-        to dict: inout [String: CachePriority]
-    ) {
-        // 次のページ
-        if focusIndex + 1 < items.count {
-            let nextItem = items[focusIndex + 1]
-            addNextPagePredictiveIDs(nextItem, to: &dict)
-        }
-        
-        // 前のページ（既存のキャッシュ保持のため）
-        if focusIndex > 0 {
-            let prevItem = items[focusIndex - 1]
-            addItemIDs(prevItem, to: &dict, priority: .prefetch)
-        }
-    }
-    
-    /// 次ページの予測的IDを追加（非推奨）
-    @available(*, deprecated, message: "Use with ListenNowItem instead")
-    private func addNextPagePredictiveIDs(
-        _ nextItem: ListenLaterItem,
-        to dict: inout [String: CachePriority]
-    ) {
-        switch nextItem.type {
-        case .track:
-            // 次ページが楽曲の場合、その楽曲を予測キャッシュ
-            if let appleMusicID = nextItem.appleMusicID {
-                dict[appleMusicID] = .prefetch
-            }
-        case .album, .artist:
-            // 次ページがアルバム/アーティストの場合、最初の1-2曲を予測キャッシュ
-            if let pickedTracks = nextItem.pickedTracks {
-                let predictiveTracks = Array(pickedTracks.prefix(2))
-                for track in predictiveTracks {
-                    if let appleMusicID = track.appleMusicID {
-                        dict[appleMusicID] = .prefetch
-                    }
-                }
-            }
-        }
-    }
 }
 
 // MARK: - ListenNow Extensions
@@ -380,16 +212,10 @@ extension CacheStrategy {
         focusPageIndex: Int,
         to dict: inout [String: CachePriority]
     ) {
-        // 次のページ
+        // 次のページのみ予測キャッシュ（仕様に従い前ページはキャッシュしない）
         if focusPageIndex + 1 < items.count {
             let nextItem = items[focusPageIndex + 1]
             addPredictiveTracksFromPage(nextItem, to: &dict)
-        }
-        
-        // 前のページ（既存のキャッシュ保持のため）
-        if focusPageIndex > 0 {
-            let prevItem = items[focusPageIndex - 1]
-            addPredictiveTracksFromPage(prevItem, to: &dict)
         }
     }
     
@@ -398,10 +224,9 @@ extension CacheStrategy {
         _ item: ListenNowItem,
         to dict: inout [String: CachePriority]
     ) {
-        // 最初の1-2曲を予測キャッシュ
-        let predictiveTrackCount = min(2, item.trackCount)
-        for index in 0..<predictiveTrackCount {
-            let track = item.getPickedTrack(at: index)
+        // 仕様に従い最初の1曲のみを予測キャッシュ
+        if item.trackCount > 0 {
+            let track = item.getPickedTrack(at: 0)
             if dict[track.appleMusicID] == nil {
                 dict[track.appleMusicID] = .prefetch
             }

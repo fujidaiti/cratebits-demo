@@ -53,6 +53,19 @@ struct ListenNowView: View {
 #if os(iOS)
         .navigationViewStyle(.stack)
         #endif
+        .onAppear {
+            print("[ListenNow Debug] 🚀 View appeared with queue count: \(storage.listenNowQueue.count)")
+            // 既存のキューがある場合はキャッシュシステムを初期化
+            if !storage.listenNowQueue.isEmpty {
+                print("[ListenNow Debug] 🔄 Initializing cache with existing queue")
+                Task {
+                    await musicPlayer.updateListenNowItems(storage.listenNowQueue)
+                    print("[ListenNow Debug] 🔄 Cache initialization completed")
+                }
+            } else {
+                print("[ListenNow Debug] 📭 No existing queue found")
+            }
+        }
     }
     
     /// TikTok風の楽曲カルーセル表示（縦スクロール）
@@ -62,6 +75,7 @@ struct ListenNowView: View {
                 ForEach(storage.listenNowQueue.indices, id: \.self) { index in
                     ListenNowCardView(
                         item: storage.listenNowQueue[index],
+                        pageIndex: index,
                         onEvaluate: { evaluation in
                             handleEvaluation(evaluation, for: storage.listenNowQueue[index])
                         },
@@ -80,22 +94,30 @@ struct ListenNowView: View {
         }
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $currentIndex)
-        .onChange(of: currentIndex) { _, newIndex in
+        .onChange(of: currentIndex) { oldIndex, newIndex in
+            print("[ListenNow Debug] 🔄 PAGE NAVIGATION: from \(String(describing: oldIndex)) to \(String(describing: newIndex))")
+            
             guard let newIndex = newIndex, newIndex < storage.listenNowQueue.count else { 
                 print("[ListenNow Debug] onChange: Invalid index - newIndex: \(String(describing: newIndex)), queue count: \(storage.listenNowQueue.count)")
                 return 
             }
             
-            print("[ListenNow Debug] onChange triggered - newIndex: \(newIndex), queue count: \(storage.listenNowQueue.count)")
-            print("[ListenNow Debug] Current item: \(storage.listenNowQueue[newIndex].name) (type: \(storage.listenNowQueue[newIndex].type))")
+            let item = storage.listenNowQueue[newIndex]
+            print("[ListenNow Debug] 📄 NAVIGATED TO PAGE \(newIndex): '\(item.name)' (type: \(item.type))")
+            if let appleMusicID = item.appleMusicID {
+                print("[ListenNow Debug] 🆔 Apple Music ID: \(appleMusicID)")
+            }
             
-            // 効率的な隣接ページキャッシュに変更
-            print("[ListenNow Debug] Calling cacheAdjacentPages for index: \(newIndex)")
-            musicPlayer.cacheAdjacentPages(items: storage.listenNowQueue, currentIndex: newIndex)
+            // 新しいキャッシュシステムでフォーカス変更を処理
+            Task {
+                print("[ListenNow Debug] 🎯 Calling handleFocusChange(to: \(newIndex))")
+                await musicPlayer.handleFocusChange(to: newIndex)
+                print("[ListenNow Debug] 🎯 handleFocusChange completed")
+            }
             
             // プレビューモード中は自動でプレビューを開始
             if musicPlayer.isPreviewMode {
-                let item = storage.listenNowQueue[newIndex]
+                print("[ListenNow Debug] 🎧 Preview mode active, starting preview for: \(item.name)")
                 Task {
                     await musicPlayer.playPreviewInstantly(for: item)
                 }
@@ -196,6 +218,11 @@ struct ListenNowView: View {
                 currentIndex = 0
                 toastManager.show("🎵 New queue generated!", type: .success)
             }
+            
+            // 新しいキューを音楽プレイヤーのキャッシュシステムに通知
+            print("[ListenNow Debug] 🔄 About to call updateListenNowItems with \(expandedTracks.count) items")
+            await musicPlayer.updateListenNowItems(expandedTracks)
+            print("[ListenNow Debug] 🔄 updateListenNowItems completed")
         }
     }
     
@@ -236,7 +263,6 @@ struct ListenNowView: View {
             await musicPlayer.playPreviewInstantly(for: item)
         }
         
-        // 効率的キャッシュは既にonChangeで実行されるため削除
     }
     
     /// アイテムのプレビューを再生
@@ -338,6 +364,7 @@ struct ListenNowView: View {
 /// Listen Nowカード表示ビュー
 struct ListenNowCardView: View {
     let item: ListenLaterItem
+    let pageIndex: Int
     let onEvaluate: (EvaluationType) -> Void
     let onPlay: () -> Void
     let onPreview: () -> Void
@@ -402,11 +429,14 @@ struct ListenNowCardView: View {
                                 }
                             }
                         },
-                        onCarouselIndexChange: nil
+                        onCarouselIndexChange: { trackIndex in
+                            // カルーセル内移動時のキャッシュ処理
+                            Task {
+                                await musicPlayer.handleCarouselFocusChange(to: pageIndex, trackIndex: trackIndex)
+                            }
+                        }
                     )
                     .frame(height: 120)
-                    // カルーセル自体には水平パディングを適用しない
-                    // キャッシュは上位レベルの効率的戦略で実行されるため削除
                 }
                 .padding(.bottom, 20)
             }
@@ -616,17 +646,12 @@ struct TrackCarouselView: View {
         
         currentIndex = index
         
-        // プレビューモード中は即座にプレビューを開始
-        // onChangeが発火するので、ここでは呼ばない（重複防止）
         print("[Carousel Debug] Index updated, onChange will handle preview switch")
     }
     
     
     /// 初期状態のセットアップ
     private func setupInitialState() {
-        // 初期キャッシュは上位レベル（ListenNowView）で実行されるため、ここでは実行しない
-        print("[Carousel Debug] Initial state setup - cache will be handled by parent view")
-        
         // プレビューモード中の場合、現在のトラックのプレビューを開始
         if musicPlayer.isPreviewMode && currentIndex < tracks.count {
             print("[Carousel Debug] Initial preview for track: \(tracks[currentIndex].name)")
