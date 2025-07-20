@@ -18,6 +18,7 @@ struct ListenNowView: View {
     @State private var currentIndex: Int? = 0
     @State private var scrolledPageID: Int? // スクロール位置の実際の検知用
     @State private var debounceTask: Task<Void, Never>? // デバウンス処理用
+    @State private var pageTrackIndexes: [Int: Int] = [:] // ページ別カルーセルインデックスの管理
     
     var body: some View {
         NavigationView {
@@ -85,13 +86,26 @@ struct ListenNowView: View {
                             },
                             onPreview: { trackIndex in
                                 playPreviewAndEnterMode(for: storage.listenNowQueue[index], trackIndex: trackIndex)
-                            }
+                            },
+                            onTrackIndexChange: { trackIndex in
+                                // カルーセルインデックス変更時にページ別状態を保存
+                                pageTrackIndexes[index] = trackIndex
+                                print("[ListenNow Debug] 💾 Saved track index \(trackIndex) for page \(index)")
+                            },
+                            initialTrackIndex: pageTrackIndexes[index] ?? 0
                         )
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
                         .id(index)
                         .onAppear {
                             print("[ListenNow Debug] 👁 Card \(index) appeared: '\(storage.listenNowQueue[index].name)'")
+                            // ページ初回表示時は保存されたカルーセル状態を復元、なければ0で初期化
+                            if pageTrackIndexes[index] == nil {
+                                pageTrackIndexes[index] = 0
+                                print("[ListenNow Debug] 🎯 Initialized track index 0 for new page \(index)")
+                            } else {
+                                print("[ListenNow Debug] 🎯 Page \(index) has saved track index: \(pageTrackIndexes[index]!)")
+                            }
                         }
                         .onDisappear {
                             print("[ListenNow Debug] 👁 Card \(index) disappeared: '\(storage.listenNowQueue[index].name)'")
@@ -161,10 +175,12 @@ struct ListenNowView: View {
                     if !Task.isCancelled {
                         print("[ListenNow Debug] 🎧 ✅ Debounce completed: Auto-switching preview to: \(item.name)")
                         
-                        // ピックアップトラックがある場合は最初のトラックを再生
+                        // ピックアップトラックがある場合は保存されたインデックスのトラックを再生
                         if let pickedTracks = item.pickedTracks, !pickedTracks.isEmpty {
-                            print("[ListenNow Debug] 🎧 🎵 Playing picked track: \(pickedTracks[0].name)")
-                            await musicPlayer.playPreviewInstantly(for: pickedTracks[0])
+                            let savedTrackIndex = pageTrackIndexes[newPageID] ?? 0
+                            let trackToPlay = pickedTracks[min(savedTrackIndex, pickedTracks.count - 1)]
+                            print("[ListenNow Debug] 🎧 🎵 Playing picked track [\(savedTrackIndex)]: \(trackToPlay.name)")
+                            await musicPlayer.playPreviewInstantly(for: trackToPlay)
                         } else {
                             print("[ListenNow Debug] 🎧 🎵 Playing main item: \(item.name)")
                             await musicPlayer.playPreviewInstantly(for: item)
@@ -440,6 +456,8 @@ struct ListenNowCardView: View {
     let onEvaluate: (EvaluationType) -> Void
     let onPlay: () -> Void
     let onPreview: (Int?) -> Void
+    let onTrackIndexChange: ((Int) -> Void)? // カルーセルインデックス変更のコールバック
+    let initialTrackIndex: Int // 初期トラックインデックス
     
     @EnvironmentObject var musicPlayer: MusicPlayerService
     @State private var currentTrackIndex = 0
@@ -504,6 +522,8 @@ struct ListenNowCardView: View {
                         onCarouselIndexChange: { trackIndex in
                             // カルーセル内移動時のキャッシュ処理（バックグラウンドで実行）
                             musicPlayer.handleCarouselFocusChange(to: pageIndex, trackIndex: trackIndex)
+                            // 親ビューにトラックインデックス変更を通知
+                            onTrackIndexChange?(trackIndex)
                         }
                     )
                     .frame(height: 120)
@@ -580,6 +600,11 @@ struct ListenNowCardView: View {
                 endPoint: .bottom
             )
         )
+        .onAppear {
+            // 初期トラックインデックスでカルーセル状態を初期化
+            currentTrackIndex = initialTrackIndex
+            print("[ListenNow Debug] 🎯 CardView initialized with track index: \(initialTrackIndex) for page \(pageIndex)")
+        }
     }
     
     private var iconName: String {
