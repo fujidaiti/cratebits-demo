@@ -485,10 +485,14 @@ struct ListenNowCardView: View {
                     
                     // アイテム情報表示
                     VStack(spacing: 20) {
-                        // タイプアイコン
-                        Image(systemName: iconName)
-                            .font(.system(size: 80))
-                            .foregroundColor(iconColor)
+                        // アートワーク画像またはタイプアイコン
+                        ArtworkImageView(
+                            artworkURL: item.artworkURL,
+                            width: 80,
+                            cornerRadius: 8,
+                            fallbackIcon: iconName,
+                            fallbackColor: iconColor
+                        )
                         
                         // タイトル
                         Text(item.name)

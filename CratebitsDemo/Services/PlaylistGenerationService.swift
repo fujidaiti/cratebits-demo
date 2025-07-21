@@ -83,7 +83,8 @@ class PlaylistGenerationService: ObservableObject {
                         name: track.title, // 実際の楽曲名
                         artist: album.artist,
                         dateAdded: Date(),
-                        appleMusicID: track.id.rawValue
+                        appleMusicID: track.id.rawValue,
+                        artworkURL: track.artwork?.url(width: 300, height: 300)
                     )
                     tracks.append(trackItem)
                 }
@@ -130,7 +131,8 @@ class PlaylistGenerationService: ObservableObject {
                 name: trackName, // アルバム名を含まない楽曲名のみ
                 artist: album.artist,
                 dateAdded: Date(),
-                appleMusicID: nil
+                appleMusicID: nil,
+                artworkURL: nil
             )
             tracks.append(trackItem)
         }
@@ -175,7 +177,8 @@ class PlaylistGenerationService: ObservableObject {
                     name: song.title, // 実際の楽曲名のみ
                     artist: artist.name,
                     dateAdded: Date(),
-                    appleMusicID: song.id.rawValue
+                    appleMusicID: song.id.rawValue,
+                    artworkURL: song.artwork?.url(width: 300, height: 300)
                 )
                 tracks.append(trackItem)
             }
@@ -208,7 +211,8 @@ class PlaylistGenerationService: ObservableObject {
                 name: trackName, // アーティスト名を含まない楽曲名のみ
                 artist: artist.name,
                 dateAdded: Date(),
-                appleMusicID: nil
+                appleMusicID: nil,
+                artworkURL: nil
             )
             tracks.append(trackItem)
         }

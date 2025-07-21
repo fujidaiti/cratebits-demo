@@ -31,6 +31,7 @@ struct ListenLaterItem: Identifiable, Codable {
     let artist: String
     let dateAdded: Date
     let appleMusicID: String?
+    let artworkURL: URL? // アートワーク画像URL
     var pickedTracks: [ListenLaterItem]? // アルバム/アーティストの場合のピックアップ楽曲
     
     /// 表示用のテキスト
@@ -46,7 +47,7 @@ struct ListenLaterItem: Identifiable, Codable {
     }
     
     /// トラック用のイニシャライザ
-    static func track(name: String, artist: String, appleMusicID: String? = nil) -> ListenLaterItem {
+    static func track(name: String, artist: String, appleMusicID: String? = nil, artworkURL: URL? = nil) -> ListenLaterItem {
         return ListenLaterItem(
             id: UUID().uuidString,
             type: .track,
@@ -54,12 +55,13 @@ struct ListenLaterItem: Identifiable, Codable {
             artist: artist,
             dateAdded: Date(),
             appleMusicID: appleMusicID,
+            artworkURL: artworkURL,
             pickedTracks: nil
         )
     }
     
     /// アルバム用のイニシャライザ
-    static func album(name: String, artist: String, appleMusicID: String? = nil) -> ListenLaterItem {
+    static func album(name: String, artist: String, appleMusicID: String? = nil, artworkURL: URL? = nil) -> ListenLaterItem {
         return ListenLaterItem(
             id: UUID().uuidString,
             type: .album,
@@ -67,12 +69,13 @@ struct ListenLaterItem: Identifiable, Codable {
             artist: artist,
             dateAdded: Date(),
             appleMusicID: appleMusicID,
+            artworkURL: artworkURL,
             pickedTracks: nil
         )
     }
     
     /// アーティスト用のイニシャライザ
-    static func artist(name: String, appleMusicID: String? = nil) -> ListenLaterItem {
+    static func artist(name: String, appleMusicID: String? = nil, artworkURL: URL? = nil) -> ListenLaterItem {
         return ListenLaterItem(
             id: UUID().uuidString,
             type: .artist,
@@ -80,6 +83,7 @@ struct ListenLaterItem: Identifiable, Codable {
             artist: name,
             dateAdded: Date(),
             appleMusicID: appleMusicID,
+            artworkURL: artworkURL,
             pickedTracks: nil
         )
     }
@@ -94,6 +98,7 @@ extension ListenLaterItem {
         self.artist = track.artistName
         self.dateAdded = Date()
         self.appleMusicID = track.id.rawValue
+        self.artworkURL = track.artwork?.url(width: 300, height: 300)
         self.pickedTracks = nil
     }
     
@@ -104,6 +109,7 @@ extension ListenLaterItem {
         self.artist = song.artistName
         self.dateAdded = Date()
         self.appleMusicID = song.id.rawValue
+        self.artworkURL = song.artwork?.url(width: 300, height: 300)
         self.pickedTracks = nil
     }
     
@@ -114,6 +120,7 @@ extension ListenLaterItem {
         self.artist = album.artistName
         self.dateAdded = Date()
         self.appleMusicID = album.id.rawValue
+        self.artworkURL = album.artwork?.url(width: 300, height: 300)
         self.pickedTracks = nil
     }
     
@@ -124,6 +131,7 @@ extension ListenLaterItem {
         self.artist = artist.name
         self.dateAdded = Date()
         self.appleMusicID = artist.id.rawValue
+        self.artworkURL = artist.artwork?.url(width: 300, height: 300)
         self.pickedTracks = nil
     }
 }
