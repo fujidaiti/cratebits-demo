@@ -19,6 +19,7 @@ struct ListenNowView: View {
     @State private var scrolledPageID: Int? // スクロール位置の実際の検知用
     @State private var debounceTask: Task<Void, Never>? // デバウンス処理用
     @State private var pageTrackIndexes: [Int: Int] = [:] // ページ別カルーセルインデックスの管理
+    @State private var hasInitializedCache = false // キャッシュ初期化状態管理
     
     var body: some View {
         NavigationView {
@@ -58,14 +59,30 @@ struct ListenNowView: View {
         #endif
         .onAppear {
             print("[ListenNow Debug] 🚀 View appeared with queue count: \(storage.listenNowQueue.count)")
-            // 既存のキューがある場合はキャッシュシステムを初期化（バックグラウンドで実行）
-            if !storage.listenNowQueue.isEmpty {
-                print("[ListenNow Debug] 🔄 Initializing cache with existing queue")
+            
+            // 初回のみキャッシュ初期化を実行（onAppearの重複呼び出しを防止）
+            if !hasInitializedCache && !storage.listenNowQueue.isEmpty {
+                print("[ListenNow Debug] 🔄 First-time cache initialization with existing queue")
+                hasInitializedCache = true
                 musicPlayer.updateListenNowItems(storage.listenNowQueue)
                 print("[ListenNow Debug] 🔄 Cache initialization started in background")
+            } else if hasInitializedCache {
+                print("[ListenNow Debug] ✅ Cache already initialized - skipping duplicate initialization")
             } else {
-                print("[ListenNow Debug] 📭 No existing queue found")
+                print("[ListenNow Debug] 📭 No existing queue found for initialization")
             }
+        }
+        .onDisappear {
+            print("[ListenNow Debug] 🚫 View disappeared - stopping preview mode for cleanup")
+            // ビューが非表示になる際にプレビューモードを停止（音声の重複防止）
+            if musicPlayer.isPreviewMode {
+                musicPlayer.exitPreviewMode()
+                print("[ListenNow Debug] ✅ Preview mode exited on view disappear")
+            }
+            
+            // デバウンスタスクをキャンセル
+            debounceTask?.cancel()
+            print("[ListenNow Debug] ✅ Debounce task cancelled")
         }
     }
     
@@ -289,6 +306,7 @@ struct ListenNowView: View {
             await MainActor.run {
                 storage.saveListenNowQueue(expandedTracks)
                 currentIndex = 0
+                hasInitializedCache = true // キャッシュ初期化状態を更新
                 toastManager.show("🎵 New queue generated!", type: .success)
             }
             

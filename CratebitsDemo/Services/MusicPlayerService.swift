@@ -632,6 +632,12 @@ class MusicPlayerService: NSObject, ObservableObject {
     
     /// ListenNowリストの更新（新しいキューが生成された時）
     func updateListenNowItems(_ items: [ListenLaterItem]) {
+        // 既に初期化中の場合はスキップ（重複防止）
+        guard !isCacheInitializing else {
+            print("[Cache Debug] ⏭️ Cache already initializing, skipping duplicate updateListenNowItems call")
+            return
+        }
+        
         // Set cache initialization state on main actor
         Task { @MainActor in
             self.isCacheInitializing = true
@@ -705,7 +711,8 @@ class MusicPlayerService: NSObject, ObservableObject {
     /// キャッシュからプレイヤーを取得（内部用）
     private func getCachedPlayer(for appleMusicID: String) async -> AVPlayer? {
         // AVPlayerCacheStorageの場合は直接プレイヤーを取得
-        if let avStorage = cacheController.storage as? AVPlayerCacheStorage {
+        let storage = await cacheController.storage
+        if let avStorage = storage as? AVPlayerCacheStorage {
             return avStorage.getPlayer(for: appleMusicID)
         }
         
