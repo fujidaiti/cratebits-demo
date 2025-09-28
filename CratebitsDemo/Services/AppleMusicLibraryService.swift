@@ -86,6 +86,22 @@ class AppleMusicLibraryService: ObservableObject {
                 print("[Library] Album not found for ID: \(appleMusicID)")
                 return false
             }
+
+            // Debug logs for album artwork URL verification
+            print("[ARTWORK-DEBUG] Album: \(album.title) by \(album.artistName)")
+            print("[ARTWORK-DEBUG] Album ID: \(album.id.rawValue)")
+            print("[ARTWORK-DEBUG] Artwork available: \(album.artwork != nil)")
+
+            if let artwork = album.artwork {
+                // Test different artwork sizes
+                let sizes = [(100, 100), (300, 300), (600, 600)]
+                for (width, height) in sizes {
+                    let artworkURL = artwork.url(width: width, height: height)
+                    print("[ARTWORK-DEBUG] Artwork URL (\(width)x\(height)): \(artworkURL?.absoluteString ?? "nil")")
+                }
+            } else {
+                print("[ARTWORK-DEBUG] No artwork property available for album")
+            }
             
             // ライブラリに追加
             try await MusicLibrary.shared.add(album)

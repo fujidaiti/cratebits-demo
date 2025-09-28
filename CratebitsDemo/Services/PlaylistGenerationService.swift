@@ -67,6 +67,15 @@ class PlaylistGenerationService: ObservableObject {
             guard let albumData = albumResponse.items.first else {
                 return createFallbackTracks(for: album)
             }
+
+            // Debug logs for album artwork URL verification
+            print("[ARTWORK-DEBUG] Fetched Album: \(albumData.title) by \(albumData.artistName)")
+            print("[ARTWORK-DEBUG] Album artwork available: \(albumData.artwork != nil)")
+
+            if let artwork = albumData.artwork {
+                let artworkURL = artwork.url(width: 300, height: 300)
+                print("[ARTWORK-DEBUG] Album artwork URL (300x300): \(artworkURL?.absoluteString ?? "nil")")
+            }
             
             // アルバムから楽曲を含む詳細情報を取得
             let detailedAlbum = try await albumData.with([.tracks])
@@ -77,6 +86,15 @@ class PlaylistGenerationService: ObservableObject {
                 let tracksToUse = Array(albumTracks.prefix(5))
                 
                 for track in tracksToUse {
+                    // Debug logs for track artwork comparison
+                    print("[ARTWORK-DEBUG] Track: \(track.title)")
+                    print("[ARTWORK-DEBUG] Track artwork available: \(track.artwork != nil)")
+
+                    if let trackArtwork = track.artwork {
+                        let trackArtworkURL = trackArtwork.url(width: 300, height: 300)
+                        print("[ARTWORK-DEBUG] Track artwork URL (300x300): \(trackArtworkURL?.absoluteString ?? "nil")")
+                    }
+
                     let trackItem = ListenLaterItem(
                         id: UUID().uuidString,
                         type: .track,

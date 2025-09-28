@@ -114,6 +114,25 @@ extension ListenLaterItem {
     }
     
     init(from album: Album) {
+        // Debug logs for album initializer artwork URL verification
+        print("[ARTWORK-DEBUG] Creating ListenLaterItem from Album: \(album.title) by \(album.artistName)")
+        print("[ARTWORK-DEBUG] Album ID: \(album.id.rawValue)")
+        print("[ARTWORK-DEBUG] Artwork property available: \(album.artwork != nil)")
+
+        var finalArtworkURL: URL?
+        if let artwork = album.artwork {
+            finalArtworkURL = artwork.url(width: 300, height: 300)
+            print("[ARTWORK-DEBUG] Generated artwork URL (300x300): \(finalArtworkURL?.absoluteString ?? "nil")")
+
+            // Test other sizes for verification
+            let smallURL = artwork.url(width: 100, height: 100)
+            let largeURL = artwork.url(width: 600, height: 600)
+            print("[ARTWORK-DEBUG] Small artwork URL (100x100): \(smallURL?.absoluteString ?? "nil")")
+            print("[ARTWORK-DEBUG] Large artwork URL (600x600): \(largeURL?.absoluteString ?? "nil")")
+        } else {
+            print("[ARTWORK-DEBUG] No artwork available for album")
+        }
+
         self.id = UUID().uuidString
         self.type = .album
         self.name = album.title

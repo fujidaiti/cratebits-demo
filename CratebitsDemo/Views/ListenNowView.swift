@@ -15,6 +15,7 @@ struct ListenNowView: View {
     @EnvironmentObject var toastManager: ToastManager
     @StateObject private var playlistGenerator = PlaylistGenerationService()
     @StateObject private var libraryService = AppleMusicLibraryService()
+    @StateObject private var playlistSyncService = PlaylistSyncService()
     @State private var currentIndex: Int? = 0
     @State private var scrolledPageID: Int? // スクロール位置の実際の検知用
     @State private var debounceTask: Task<Void, Never>? // デバウンス処理用
@@ -38,17 +39,52 @@ struct ListenNowView: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .overlay {
+                if playlistSyncService.isSyncing {
+                    syncingOverlay
+                }
+            }
             .toolbar {
                 #if os(iOS)
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("New Queue") {
-                        generateNewQueue()
+                    HStack {
+                        Button(action: syncToPlaylist) {
+                            HStack(spacing: 4) {
+                                if playlistSyncService.isSyncing {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                } else {
+                                    Image(systemName: "music.note.list")
+                                }
+                                Text("Sync")
+                            }
+                        }
+                        .disabled(storage.listenNowQueue.isEmpty || playlistSyncService.isSyncing)
+
+                        Button("New Queue") {
+                            generateNewQueue()
+                        }
                     }
                 }
                 #else
                 ToolbarItem(placement: .primaryAction) {
-                    Button("New Queue") {
-                        generateNewQueue()
+                    HStack {
+                        Button(action: syncToPlaylist) {
+                            HStack(spacing: 4) {
+                                if playlistSyncService.isSyncing {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                } else {
+                                    Image(systemName: "music.note.list")
+                                }
+                                Text("Sync")
+                            }
+                        }
+                        .disabled(storage.listenNowQueue.isEmpty || playlistSyncService.isSyncing)
+
+                        Button("New Queue") {
+                            generateNewQueue()
+                        }
                     }
                 }
                 #endif
@@ -79,10 +115,16 @@ struct ListenNowView: View {
                 musicPlayer.exitPreviewMode()
                 print("[ListenNow Debug] ✅ Preview mode exited on view disappear")
             }
-            
+
             // デバウンスタスクをキャンセル
             debounceTask?.cancel()
             print("[ListenNow Debug] ✅ Debounce task cancelled")
+        }
+        .onChange(of: playlistSyncService.lastSyncError) { _, newError in
+            if let error = newError {
+                toastManager.show("❌ Sync failed: \(error)", type: .error)
+                playlistSyncService.clearError()
+            }
         }
     }
     
@@ -459,7 +501,77 @@ struct ListenNowView: View {
             toastManager.show("🔄 End of queue. Tap 'New Queue' to generate more!", type: .info)
         }
     }
-    
+
+    /// Listen Nowキューをプレイリストに同期
+    private func syncToPlaylist() {
+        guard !storage.listenNowQueue.isEmpty else {
+            toastManager.show("⚠️ No items in Listen Now queue to sync", type: .warning)
+            return
+        }
+
+        Task {
+            let success = await playlistSyncService.syncToPlaylist(storage.listenNowQueue, storage: storage)
+
+            await MainActor.run {
+                if success {
+                    let existingPlaylistID = storage.getPlaylistID()
+                    let message = existingPlaylistID != nil ?
+                        "🎵 Playlist updated successfully!" :
+                        "🎵 Playlist created successfully!"
+                    toastManager.show(message, type: .success)
+                }
+                // Error handling is done in onChange(of: playlistSyncService.lastSyncError)
+            }
+        }
+    }
+
+    /// Modal overlay shown during playlist sync to block user interactions
+    private var syncingOverlay: some View {
+        ZStack {
+            // Semi-transparent background
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+
+            // Modal dialog
+            VStack(spacing: 20) {
+                // Progress indicator
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+
+                // Title
+                Text("Syncing Playlist")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+
+                // Description
+                Text("Creating your Apple Music playlist...")
+                    .font(.body)
+                    .foregroundColor(.white.opacity(0.8))
+                    .multilineTextAlignment(.center)
+
+                // Additional info
+                Text("Please wait while we sync your songs")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+            }
+            .padding(30)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(.white.opacity(0.2), lineWidth: 1)
+                    )
+            )
+            .padding(.horizontal, 40)
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        .animation(.easeInOut(duration: 0.3), value: playlistSyncService.isSyncing)
+    }
+
 }
 
 

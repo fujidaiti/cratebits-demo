@@ -17,6 +17,7 @@ class UserDefaultsStorage: ObservableObject {
     private let itemsStorageKey = "listen_later_items"
     private let evaluationsStorageKey = "music_evaluations"
     private let listenNowQueueKey = "listen_now_queue"
+    private let playlistIDKey = "apple_music_playlist_id"
     
     init() {
         loadItems()
@@ -126,6 +127,24 @@ class UserDefaultsStorage: ObservableObject {
         UserDefaults.standard.removeObject(forKey: itemsStorageKey)
         UserDefaults.standard.removeObject(forKey: evaluationsStorageKey)
         UserDefaults.standard.removeObject(forKey: listenNowQueueKey)
+        UserDefaults.standard.removeObject(forKey: playlistIDKey)
+    }
+
+    // MARK: - Apple Music Playlist ID
+
+    /// Save the Apple Music playlist ID
+    func savePlaylistID(_ playlistID: String) {
+        UserDefaults.standard.set(playlistID, forKey: playlistIDKey)
+    }
+
+    /// Get the saved Apple Music playlist ID
+    func getPlaylistID() -> String? {
+        return UserDefaults.standard.string(forKey: playlistIDKey)
+    }
+
+    /// Clear the saved Apple Music playlist ID
+    func clearPlaylistID() {
+        UserDefaults.standard.removeObject(forKey: playlistIDKey)
     }
     
     // MARK: - Share Extension Integration
