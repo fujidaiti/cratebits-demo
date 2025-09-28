@@ -38,8 +38,8 @@ class PlaylistSyncService: ObservableObject {
         }
 
         #if os(iOS)
-        // Extract songs from the listen now items
-        let songs = await extractSongs(from: items)
+        // Extract songs from the listen now items using minimal JSON approach
+        let songs = extractSongsFromJSON(from: items)
 
         if songs.isEmpty {
             lastSyncError = "No valid songs found to sync"
@@ -120,51 +120,88 @@ class PlaylistSyncService: ObservableObject {
     }
     #endif
 
-    /// Extract Song objects from ListenLaterItem array
-    private func extractSongs(from items: [ListenLaterItem]) async -> [Song] {
-        var songs: [Song] = []
+    /// Extract Song objects from ListenLaterItem array using minimal JSON approach
+    /// No API calls needed - creates Songs from minimal JSON using Apple Music IDs
+    private func extractSongsFromJSON(from items: [ListenLaterItem]) -> [Song] {
+        var appleMusicIDs: [String] = []
 
+        // Collect all Apple Music IDs from the items
         for item in items {
             switch item.type {
             case .track:
-                if let song = await getSong(from: item) {
-                    songs.append(song)
+                if let appleMusicID = item.appleMusicID {
+                    appleMusicIDs.append(appleMusicID)
                 }
 
             case .album, .artist:
-                // For albums and artists, get songs from picked tracks
+                // For albums and artists, get Apple Music IDs from picked tracks
                 if let pickedTracks = item.pickedTracks {
                     for pickedTrack in pickedTracks {
-                        if let song = await getSong(from: pickedTrack) {
-                            songs.append(song)
+                        if let appleMusicID = pickedTrack.appleMusicID {
+                            appleMusicIDs.append(appleMusicID)
                         }
                     }
                 }
             }
         }
 
+        // Create Song objects from the collected IDs using minimal JSON
+        return createSongsFromIDs(appleMusicIDs)
+    }
+
+
+    /// Create minimal JSON for a Song object using Apple Music API format
+    /// Based on actual Song JSON structure - only includes absolutely required fields
+    private func createMinimalSongJSON(appleMusicID: String) -> Data? {
+        let minimalSongJSON = """
+        {
+            "id": "\(appleMusicID)",
+            "type": "songs",
+            "attributes": {
+                "name": "",
+                "artistName": "",
+                "genreNames": []
+            }
+        }
+        """
+        return minimalSongJSON.data(using: .utf8)
+    }
+
+    /// Create multiple Song objects from Apple Music IDs using minimal JSON
+    private func createSongsFromIDs(_ appleMusicIDs: [String]) -> [Song] {
+        let decoder = JSONDecoder()
+        var songs: [Song] = []
+
+        for appleMusicID in appleMusicIDs {
+            guard let jsonData = createMinimalSongJSON(appleMusicID: appleMusicID) else {
+                print("[PlaylistSync] Failed to create JSON for ID: \(appleMusicID)")
+                continue
+            }
+
+            do {
+                let song = try decoder.decode(Song.self, from: jsonData)
+                songs.append(song)
+                print("[PlaylistSync] Created Song from minimal JSON: \(appleMusicID)")
+            } catch {
+                print("[PlaylistSync] Failed to decode Song from JSON for ID \(appleMusicID): \(error)")
+            }
+        }
+
         return songs
     }
 
-    /// Convert a ListenLaterItem to a Song object
-    /// Includes a delay to prevent hitting API rate limits when called multiple times
-    private func getSong(from item: ListenLaterItem) async -> Song? {
-        guard let appleMusicID = item.appleMusicID else {
-            print("[PlaylistSync] No Apple Music ID for item: \(item.name)")
-            return nil
-        }
-
+    /// Debug method to examine Song JSON structure
+    private func debugSongStructure(_ song: Song) {
         do {
-            // Add a small delay to prevent rate limiting when making multiple concurrent requests
-            // 100ms delay should be reasonable for most use cases while staying responsive
-            try await Task.sleep(nanoseconds: 100_000_000) // 100ms
-
-            let request = MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: MusicItemID(appleMusicID))
-            let response = try await request.response()
-            return response.items.first
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .prettyPrinted
+            let jsonData = try encoder.encode(song)
+            let jsonString = String(data: jsonData, encoding: .utf8) ?? "Failed to convert to string"
+            print("[DEBUG] Song JSON Structure:")
+            print(jsonString)
+            print("[DEBUG] ==========================================")
         } catch {
-            print("[PlaylistSync] Error fetching song \(item.name): \(error)")
-            return nil
+            print("[DEBUG] Failed to encode Song: \(error)")
         }
     }
 
